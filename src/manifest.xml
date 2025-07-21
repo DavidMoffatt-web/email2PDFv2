@@ -1,0 +1,30 @@
+<OfficeApp xmlns="http://schemas.microsoft.com/office/officeapp" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="TaskPaneApp">
+  <Id>your-addin-id</Id>
+  <Version>1.0.0</Version>
+  <ProviderName>Your Provider Name</ProviderName>
+  <DefaultLocale>en-US</DefaultLocale>
+  <DisplayName DefaultValue="My Outlook Add-in"/>
+  <Description DefaultValue="This is a sample Outlook add-in."/>
+  <IconUrl DefaultValue="https://example.com/icon.png"/>
+  <HighResolutionIconUrl DefaultValue="https://example.com/icon@2x.png"/>
+  <SupportUrl DefaultValue="https://example.com/support"/>
+  <AppDomains>
+    <AppDomain>https://example.com</AppDomain>
+  </AppDomains>
+  <Hosts>
+    <Host Name="Mailbox"/>
+  </Hosts>
+  <Requirements>
+    <Sets>
+      <Set Name="Mailbox" MinVersion="1.1"/>
+    </Sets>
+  </Requirements>
+  <FormSettings>
+    <Form xsi:type="ItemRead">
+      <DesktopSettings>
+        <SourceLocation DefaultValue="https://example.com/taskpane.html"/>
+        <RequestedHeight>250</RequestedHeight>
+      </DesktopSettings>
+    </Form>
+  </FormSettings>
+</OfficeApp>
