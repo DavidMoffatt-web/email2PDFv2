@@ -1,4 +1,4 @@
-<OfficeApp xmlns="http://schemas.microsoft.com/office/officeapp" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="TaskPaneApp">
+<OfficeApp xmlns:bt="http://schemas.microsoft.com/office/taskpaneapp" xmlns="http://schemas.microsoft.com/office/officeapp" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="TaskPaneApp">
   <Id>your-addin-id</Id>
   <Version>1.0.0</Version>
   <ProviderName>Your Provider Name</ProviderName>
@@ -20,11 +20,51 @@
     </Sets>
   </Requirements>
   <FormSettings>
-    <Form xsi:type="ItemRead">
+    <Form xsi:type="ReadWriteItem">
       <DesktopSettings>
         <SourceLocation DefaultValue="https://example.com/taskpane.html"/>
         <RequestedHeight>250</RequestedHeight>
       </DesktopSettings>
     </Form>
   </FormSettings>
+  <ExtensionPoint xsi:type="MessageReadCommandSurface">
+  <OfficeTab id="TabDefault">
+    <Group id="msgReadGroup">
+      <Label resid="groupLabel"/>
+      <Control xsi:type="Button" id="msgReadButton">
+        <Label resid="buttonLabel"/>
+        <Supertip>
+          <Title resid="buttonTitle"/>
+          <Description resid="buttonDesc"/>
+        </Supertip>
+        <Icon>
+          <bt:Image size="16" resid="icon16"/>
+          <bt:Image size="32" resid="icon32"/>
+          <bt:Image size="80" resid="icon80"/>
+        </Icon>
+        <Action xsi:type="ShowTaskpane">
+          <SourceLocation resid="taskpaneUrl"/>
+        </Action>
+      </Control>
+    </Group>
+  </OfficeTab>
+</ExtensionPoint>
+<Resources>
+  <bt:Images>
+    <bt:Image id="icon16" DefaultValue="https://example.com/icon16.png"/>
+    <bt:Image id="icon32" DefaultValue="https://example.com/icon32.png"/>
+    <bt:Image id="icon80" DefaultValue="https://example.com/icon80.png"/>
+  </bt:Images>
+  <bt:Urls>
+    <bt:Url id="taskpaneUrl" DefaultValue="https://example.com/taskpane.html"/>
+  </bt:Urls>
+  <bt:ShortStrings>
+    <bt:String id="groupLabel" DefaultValue="Email 2 PDF"/>
+    <bt:String id="buttonLabel" DefaultValue="Convert to PDF"/>
+    <bt:String id="buttonTitle" DefaultValue="Convert Email"/>
+  </bt:ShortStrings>
+  <bt:LongStrings>
+    <bt:String id="buttonDesc" DefaultValue="Convert this email, its attachments, and embedded images to a PDF."/>
+  </bt:LongStrings>
+</Resources>
 </OfficeApp>

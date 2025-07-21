@@ -22,5 +22,8 @@
     "office"
   ],
   "author": "Your Name",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "pdf-lib": "^1.17.1"
+  }
 }
