@@ -24,6 +24,7 @@
   "author": "Your Name",
   "license": "MIT",
   "dependencies": {
-    "pdf-lib": "^1.17.1"
+    "pdf-lib": "^1.17.1",
+    "validate": "^5.2.0"
   }
 }
