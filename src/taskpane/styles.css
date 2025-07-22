@@ -1,3 +1,12 @@
+# Page-break improvements for html2pdf.js
+.avoid-break {
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+.force-break {
+  page-break-before: always;
+  break-before: page;
+}
 body {
   background: #fff;
   color: #222;
