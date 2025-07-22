@@ -8,8 +8,8 @@
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="My Outlook Add-in"/>
   <Description DefaultValue="This is a sample Outlook add-in."/>
-  <IconUrl DefaultValue="https://davidmoffatt-web.github.io/email2PDFv2/images/icon.svg"/>
-  <HighResolutionIconUrl DefaultValue="https://davidmoffatt-web.github.io/email2PDFv2/images/icon@2x.svg"/>
+  <IconUrl DefaultValue="https://davidmoffatt-web.github.io/email2PDFv2/images/icon.png"/>
+  <HighResolutionIconUrl DefaultValue="https://davidmoffatt-web.github.io/email2PDFv2/images/icon@2x.png"/>
   <SupportUrl DefaultValue="https://davidmoffatt-web.github.io/email2PDFv2/support.html"/>
   <AppDomains>
     <AppDomain>https://davidmoffatt-web.github.io/email2PDFv2</AppDomain>
@@ -67,9 +67,9 @@
     </Hosts>
     <Resources>
       <bt:Images>
-        <bt:Image id="icon16" DefaultValue="https://davidmoffatt-web.github.io/email2PDFv2/images/icon16.svg"/>
-        <bt:Image id="icon32" DefaultValue="https://davidmoffatt-web.github.io/email2PDFv2/images/icon32.svg"/>
-        <bt:Image id="icon80" DefaultValue="https://davidmoffatt-web.github.io/email2PDFv2/images/icon80.svg"/>
+      <bt:Image id="icon16" DefaultValue="https://davidmoffatt-web.github.io/email2PDFv2/images/icon16.png"/>
+      <bt:Image id="icon32" DefaultValue="https://davidmoffatt-web.github.io/email2PDFv2/images/icon32.png"/>
+      <bt:Image id="icon80" DefaultValue="https://davidmoffatt-web.github.io/email2PDFv2/images/icon80.png"/>
       </bt:Images>
       <bt:Urls>
         <bt:Url id="taskpaneUrl" DefaultValue="https://davidmoffatt-web.github.io/email2PDFv2/src/taskpane/taskpane.html"/>
