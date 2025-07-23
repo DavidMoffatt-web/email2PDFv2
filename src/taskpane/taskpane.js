@@ -13,8 +13,9 @@ document.head.appendChild(pdfLibScript);
 
 
 Office.onReady(() => {
-    console.log('Office.js is ready');
-    document.getElementById('convertBtn').onclick = async function() {
+    const btn = document.getElementById('convertBtn');
+    console.log('convertBtn found:', btn);
+    btn.onclick = async function() {
         console.log('Convert button clicked.');
         this.disabled = true;
         this.textContent = 'Converting...';
