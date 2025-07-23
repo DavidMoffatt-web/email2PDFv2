@@ -156,7 +156,14 @@ async function createPdf(htmlBody, attachments, imgSources) {
                         try {
                             console.log('Converting DOCX attachment to PDF:', att.name);
                             const arrayBuffer = byteArr.buffer;
-                            const result = await window.mammoth.convertToHtml({arrayBuffer});
+                            // Check different ways mammoth might be available
+                            const mammothLib = window.mammoth || mammoth;
+                            if (!mammothLib) {
+                                console.error('Mammoth library not available');
+                                resolve();
+                                return;
+                            }
+                            const result = await mammothLib.convertToHtml({arrayBuffer});
                             const html = result.value;
                             const docxContainer = document.createElement('div');
                             docxContainer.innerHTML = html;
@@ -215,11 +222,18 @@ async function createPdf(htmlBody, attachments, imgSources) {
                         try {
                             console.log('Converting XLSX attachment to PDF:', att.name);
                             const arrayBuffer = byteArr.buffer;
-                            const workbook = window.XLSX.read(arrayBuffer, {type: 'array'});
+                            // Check different ways SheetJS might be available
+                            const xlsxLib = window.XLSX || XLSX;
+                            if (!xlsxLib) {
+                                console.error('SheetJS library not available');
+                                resolve();
+                                return;
+                            }
+                            const workbook = xlsxLib.read(arrayBuffer, {type: 'array'});
                             let html = '';
                             workbook.SheetNames.forEach(sheetName => {
                                 const worksheet = workbook.Sheets[sheetName];
-                                html += window.XLSX.utils.sheet_to_html(worksheet, {id: sheetName});
+                                html += xlsxLib.utils.sheet_to_html(worksheet, {id: sheetName});
                             });
                             const xlsxContainer = document.createElement('div');
                             xlsxContainer.innerHTML = html;
