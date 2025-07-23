@@ -157,62 +157,82 @@ async function createPdf(htmlBody, attachments, imgSources) {
                             console.log('Converting DOCX attachment to PDF:', att.name);
                             const arrayBuffer = byteArr.buffer;
                             // Check different ways mammoth might be available
-                            const mammothLib = window.mammoth || mammoth;
-                            if (!mammothLib) {
-                                console.error('Mammoth library not available');
-                                resolve();
-                                return;
+                            console.log('Checking for mammoth global:', window.mammoth, typeof mammoth);
+                            if (!window.mammoth && typeof mammoth === 'undefined') {
+                                console.log('Mammoth not found, loading dynamically...');
+                                const mammothScript = document.createElement('script');
+                                mammothScript.src = 'https://unpkg.com/mammoth@1.2.15/dist/mammoth.browser.min.js';
+                                mammothScript.onload = () => {
+                                    console.log('Mammoth loaded dynamically:', window.mammoth, typeof mammoth);
+                                    convertDocx();
+                                };
+                                document.head.appendChild(mammothScript);
+                            } else {
+                                convertDocx();
                             }
-                            const result = await mammothLib.convertToHtml({arrayBuffer});
-                            const html = result.value;
-                            const docxContainer = document.createElement('div');
-                            docxContainer.innerHTML = html;
-                            docxContainer.style.background = '#fff';
-                            docxContainer.style.padding = '24px';
-                            docxContainer.style.fontFamily = 'Arial, sans-serif';
-                            docxContainer.style.width = '800px';
-                            docxContainer.style.maxWidth = '100%';
-                            docxContainer.style.height = 'auto';
-                            docxContainer.style.overflow = 'visible';
-                            document.body.appendChild(docxContainer);
-                            const images = Array.from(docxContainer.querySelectorAll('img'));
-                            let loaded = 0;
-                            function addDocxToPdf() {
-                                html2pdf().set({
-                                    margin: 10,
-                                    filename: 'email.pdf',
-                                    image: { type: 'jpeg', quality: 0.98 },
-                                    html2canvas: { scale: 2, useCORS: true },
-                                    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-                                    pagebreak: { mode: ['avoid-all', 'css'] }
-                                }).from(docxContainer).toPdf().get('pdf').then(pdf => {
-                                    const docxPdfBytes = pdf.output('arraybuffer');
-                                    PDFDocument.load(docxPdfBytes).then(docxPdf => {
-                                        docxPdf.getPageIndices().forEach(idx => {
-                                            docxPdf.copyPages(docxPdf, [idx]).then(copiedPages => {
-                                                copiedPages.forEach(p => pdfDoc.addPage(p));
+
+                            function convertDocx() {
+                                const mammothLib = window.mammoth || mammoth;
+                                if (!mammothLib) {
+                                    console.error('Mammoth library not available');
+                                    resolve();
+                                    return;
+                                }
+                                mammothLib.convertToHtml({arrayBuffer}).then(result => {
+                                    const html = result.value;
+                                    const docxContainer = document.createElement('div');
+                                    docxContainer.innerHTML = html;
+                                    docxContainer.style.background = '#fff';
+                                    docxContainer.style.padding = '24px';
+                                    docxContainer.style.fontFamily = 'Arial, sans-serif';
+                                    docxContainer.style.width = '800px';
+                                    docxContainer.style.maxWidth = '100%';
+                                    docxContainer.style.height = 'auto';
+                                    docxContainer.style.overflow = 'visible';
+                                    document.body.appendChild(docxContainer);
+                                    const images = Array.from(docxContainer.querySelectorAll('img'));
+                                    let loaded = 0;
+                                    function addDocxToPdf() {
+                                        html2pdf().set({
+                                            margin: 10,
+                                            filename: 'email.pdf',
+                                            image: { type: 'jpeg', quality: 0.98 },
+                                            html2canvas: { scale: 2, useCORS: true },
+                                            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+                                            pagebreak: { mode: ['avoid-all', 'css'] }
+                                        }).from(docxContainer).toPdf().get('pdf').then(pdf => {
+                                            const docxPdfBytes = pdf.output('arraybuffer');
+                                            PDFDocument.load(docxPdfBytes).then(docxPdf => {
+                                                docxPdf.getPageIndices().forEach(idx => {
+                                                    docxPdf.copyPages(docxPdf, [idx]).then(copiedPages => {
+                                                        copiedPages.forEach(p => pdfDoc.addPage(p));
+                                                    });
+                                                });
+                                                document.body.removeChild(docxContainer);
+                                                console.log('DOCX converted and merged.');
+                                                resolve();
                                             });
                                         });
-                                        document.body.removeChild(docxContainer);
-                                        console.log('DOCX converted and merged.');
-                                        resolve();
-                                    });
-                                });
-                            }
-                            if (images.length > 0) {
-                                images.forEach(img => {
-                                    if (img.complete) {
-                                        loaded++;
-                                    } else {
-                                        img.onload = img.onerror = () => {
-                                            loaded++;
-                                            if (loaded === images.length) addDocxToPdf();
-                                        };
                                     }
+                                    if (images.length > 0) {
+                                        images.forEach(img => {
+                                            if (img.complete) {
+                                                loaded++;
+                                            } else {
+                                                img.onload = img.onerror = () => {
+                                                    loaded++;
+                                                    if (loaded === images.length) addDocxToPdf();
+                                                };
+                                            }
+                                        });
+                                        if (loaded === images.length) addDocxToPdf();
+                                    } else {
+                                        addDocxToPdf();
+                                    }
+                                }).catch(e => {
+                                    console.error('DOCX conversion error:', att.name, e);
+                                    resolve();
                                 });
-                                if (loaded === images.length) addDocxToPdf();
-                            } else {
-                                addDocxToPdf();
                             }
                         } catch (e) {
                             console.error('DOCX conversion error:', att.name, e);
