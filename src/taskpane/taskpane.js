@@ -161,9 +161,16 @@ async function createPdf(htmlBody, attachments, imgSources) {
                     async function waitForMammoth(timeoutMs = 5000, intervalMs = 100) {
                         const start = Date.now();
                         while (Date.now() - start < timeoutMs) {
-                            if (window.mammoth || typeof mammoth !== 'undefined') {
-                                return window.mammoth || mammoth;
-                            }
+                            // Try window.mammoth, window['mammoth'], or global mammoth
+                            if (window.mammoth) return window.mammoth;
+                            if (window['mammoth']) return window['mammoth'];
+                            try {
+                                if (typeof mammoth !== 'undefined') {
+                                    // Attach to window if not already
+                                    window.mammoth = mammoth;
+                                    return mammoth;
+                                }
+                            } catch (e) {}
                             await new Promise(res => setTimeout(res, intervalMs));
                         }
                         return null;
