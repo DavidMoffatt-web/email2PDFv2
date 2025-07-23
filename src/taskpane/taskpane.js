@@ -11,37 +11,52 @@ document.head.appendChild(pdfLibScript);
 
 Office.onReady(() => {
     document.getElementById('convertBtn').onclick = async function() {
+        console.log('Convert button clicked.');
         this.disabled = true;
         this.textContent = 'Converting...';
-        Office.context.mailbox.item.body.getAsync(Office.CoercionType.Html, async (result) => {
-            if (result.status === Office.AsyncResultStatus.Succeeded) {
-                const htmlBody = result.value;
-                const attachments = Office.context.mailbox.item.attachments;
-                const imgSources = [];
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(htmlBody, 'text/html');
-                const imgs = doc.querySelectorAll('img');
-                imgs.forEach(img => {
-                    if (img.src) imgSources.push(img.src);
-                });
+        try {
+            Office.context.mailbox.item.body.getAsync(Office.CoercionType.Html, async (result) => {
+                if (result.status === Office.AsyncResultStatus.Succeeded) {
+                    const htmlBody = result.value;
+                    const attachments = Office.context.mailbox.item.attachments;
+                    const imgSources = [];
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(htmlBody, 'text/html');
+                    const imgs = doc.querySelectorAll('img');
+                    imgs.forEach(img => {
+                        if (img.src) imgSources.push(img.src);
+                    });
 
-                // Wait for pdf-lib to load
-                if (!PDFDocument) {
-                    alert('PDF library not loaded yet. Please try again in a moment.');
+                    // Wait for pdf-lib to load
+                    if (!PDFDocument) {
+                        console.error('PDF library not loaded yet.');
+                        alert('PDF library not loaded yet. Please try again in a moment.');
+                        this.disabled = false;
+                        this.textContent = 'Convert Email to PDF';
+                        return;
+                    }
+
+                    try {
+                        await createPdf(htmlBody, attachments, imgSources);
+                    } catch (err) {
+                        console.error('Error in createPdf:', err);
+                        alert('PDF generation failed: ' + err.message);
+                    }
                     this.disabled = false;
                     this.textContent = 'Convert Email to PDF';
-                    return;
+                } else {
+                    console.error('Failed to get email body:', result.error);
+                    alert('Failed to get email body: ' + result.error);
+                    this.disabled = false;
+                    this.textContent = 'Convert Email to PDF';
                 }
-
-                await createPdf(htmlBody, attachments, imgSources);
-                this.disabled = false;
-                this.textContent = 'Convert Email to PDF';
-            } else {
-                alert('Failed to get email body: ' + result.error);
-                this.disabled = false;
-                this.textContent = 'Convert Email to PDF';
-            }
-        });
+            });
+        } catch (err) {
+            console.error('Unexpected error in button handler:', err);
+            alert('Unexpected error: ' + err.message);
+            this.disabled = false;
+            this.textContent = 'Convert Email to PDF';
+        }
     };
     document.getElementById('convertBtn').onclick = function() {
         this.disabled = true;
