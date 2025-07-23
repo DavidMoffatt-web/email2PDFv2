@@ -1,8 +1,11 @@
+console.log('taskpane.js loaded');
 // Load pdf-lib from CDN for browser compatibility
 let PDFDocument;
+console.log('Loading PDFLib script...');
 const pdfLibScript = document.createElement('script');
 pdfLibScript.src = 'https://cdn.jsdelivr.net/npm/pdf-lib/dist/pdf-lib.min.js';
 pdfLibScript.onload = () => {
+    console.log('PDFLib script loaded.');
     PDFDocument = window.PDFLib.PDFDocument;
 };
 document.head.appendChild(pdfLibScript);
@@ -10,6 +13,7 @@ document.head.appendChild(pdfLibScript);
 
 
 Office.onReady(() => {
+    console.log('Office.js is ready');
     document.getElementById('convertBtn').onclick = async function() {
         console.log('Convert button clicked.');
         this.disabled = true;
@@ -36,6 +40,7 @@ Office.onReady(() => {
                         return;
                     }
 
+                    console.log('Calling createPdf...');
                     try {
                         await createPdf(htmlBody, attachments, imgSources);
                     } catch (err) {
@@ -130,6 +135,7 @@ Office.onReady(() => {
 
 
 async function createPdf(htmlBody, attachments, imgSources) {
+    console.log('createPdf called');
     console.log('Starting PDF creation...');
     const pdfDoc = await PDFDocument.create();
     const page = pdfDoc.addPage();
