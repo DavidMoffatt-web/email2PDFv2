@@ -158,20 +158,7 @@ async function createPdf(htmlBody, attachments, imgSources) {
                             const arrayBuffer = byteArr.buffer;
                             // Check different ways mammoth might be available
                             console.log('Checking for mammoth global:', window.mammoth, typeof mammoth);
-                            if (!window.mammoth && typeof mammoth === 'undefined') {
-                                console.log('Mammoth not found, loading dynamically...');
-                                const mammothScript = document.createElement('script');
-                                mammothScript.src = 'https://unpkg.com/mammoth@1.2.15/dist/mammoth.browser.min.js';
-                                mammothScript.onload = () => {
-                                    console.log('Mammoth loaded dynamically:', window.mammoth, typeof mammoth);
-                                    convertDocx();
-                                };
-                                document.head.appendChild(mammothScript);
-                            } else {
-                                convertDocx();
-                            }
-
-                            function convertDocx() {
+                            function runDocxConversion() {
                                 const mammothLib = window.mammoth || mammoth;
                                 if (!mammothLib) {
                                     console.error('Mammoth library not available');
@@ -233,6 +220,18 @@ async function createPdf(htmlBody, attachments, imgSources) {
                                     console.error('DOCX conversion error:', att.name, e);
                                     resolve();
                                 });
+                            }
+                            if (!window.mammoth && typeof mammoth === 'undefined') {
+                                console.log('Mammoth not found, loading dynamically...');
+                                const mammothScript = document.createElement('script');
+                                mammothScript.src = 'https://unpkg.com/mammoth@1.2.15/dist/mammoth.browser.min.js';
+                                mammothScript.onload = () => {
+                                    console.log('Mammoth loaded dynamically:', window.mammoth, typeof mammoth);
+                                    runDocxConversion();
+                                };
+                                document.head.appendChild(mammothScript);
+                            } else {
+                                runDocxConversion();
                             }
                         } catch (e) {
                             console.error('DOCX conversion error:', att.name, e);
