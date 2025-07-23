@@ -13,6 +13,7 @@ document.head.appendChild(pdfLibScript);
 
 
 Office.onReady(() => {
+    console.log('Office.js is ready');
     const btn = document.getElementById('convertBtn');
     console.log('convertBtn found:', btn);
     btn.onclick = async function() {
@@ -63,72 +64,6 @@ Office.onReady(() => {
             this.disabled = false;
             this.textContent = 'Convert Email to PDF';
         }
-    };
-    document.getElementById('convertBtn').onclick = function() {
-        this.disabled = true;
-        this.textContent = 'Converting...';
-        Office.context.mailbox.item.body.getAsync(Office.CoercionType.Html, (result) => {
-            if (result.status === Office.AsyncResultStatus.Succeeded) {
-                let htmlBody = result.value;
-                // Rewrite image srcs to use proxy for CORS
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(htmlBody, 'text/html');
-                doc.querySelectorAll('img').forEach(img => {
-                    if (img.src.startsWith('http')) {
-                        img.src = 'https://email2-pd-fv2.vercel.app/api/proxy?url=' + encodeURIComponent(img.src);
-                    }
-                });
-                // Create a container for html2pdf
-                const container = document.createElement('div');
-                container.innerHTML = doc.body.innerHTML;
-                container.style.background = '#fff';
-                container.style.padding = '24px';
-                container.style.fontFamily = 'Arial, sans-serif';
-                container.style.width = '800px';
-                container.style.maxWidth = '100%';
-                container.style.height = 'auto';
-                container.style.overflow = 'visible';
-                document.body.appendChild(container);
-
-                // Wait for all images to load before generating PDF
-                const images = Array.from(container.querySelectorAll('img'));
-                let loaded = 0;
-                if (images.length > 0) {
-                    images.forEach(img => {
-                        if (img.complete) {
-                            loaded++;
-                        } else {
-                            img.onload = img.onerror = () => {
-                                loaded++;
-                                if (loaded === images.length) generatePDF();
-                            };
-                        }
-                    });
-                    if (loaded === images.length) generatePDF();
-                } else {
-                    generatePDF();
-                }
-
-                function generatePDF() {
-                    html2pdf().set({
-                        margin: 10,
-                        filename: 'email.pdf',
-                        image: { type: 'jpeg', quality: 0.98 },
-                        html2canvas: { scale: 2, useCORS: true },
-                        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-                        pagebreak: { mode: ['avoid-all', 'css'] }
-                    }).from(container).save().then(() => {
-                        document.body.removeChild(container);
-                        document.getElementById('convertBtn').disabled = false;
-                        document.getElementById('convertBtn').textContent = 'Convert Email to PDF';
-                    });
-                }
-            } else {
-                alert('Failed to get email body: ' + result.error);
-                this.disabled = false;
-                this.textContent = 'Convert Email to PDF';
-            }
-        });
     };
 });
 
