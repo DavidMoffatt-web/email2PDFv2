@@ -213,12 +213,10 @@ async function createPdf(htmlBody, attachments, imgSources) {
                                         pagebreak: { mode: ['avoid-all', 'css'] }
                                     }).from(docxContainer).toPdf().get('pdf').then(pdf => {
                                         const docxPdfBytes = pdf.output('arraybuffer');
-                                        PDFDocument.load(docxPdfBytes).then(docxPdf => {
-                                            docxPdf.getPageIndices().forEach(idx => {
-                                                docxPdf.copyPages(docxPdf, [idx]).then(copiedPages => {
-                                                    copiedPages.forEach(p => pdfDoc.addPage(p));
-                                                });
-                                            });
+                                        PDFDocument.load(docxPdfBytes).then(async docxPdf => {
+                                            const pageIndices = docxPdf.getPageIndices();
+                                            const copiedPages = await pdfDoc.copyPages(docxPdf, pageIndices);
+                                            copiedPages.forEach(p => pdfDoc.addPage(p));
                                             document.body.removeChild(docxContainer);
                                             console.log('DOCX converted and merged.');
                                             resolve();
