@@ -103,11 +103,11 @@ async function createPdf(htmlBody, attachments, imgSources) {
     emailContainer.style.minHeight = '400px';
     emailContainer.style.height = 'auto';
     emailContainer.style.overflow = 'visible';
-    emailContainer.style.position = 'fixed';
-    emailContainer.style.left = '0';
+    // Use offscreen positioning instead of hiding with opacity
+    emailContainer.style.position = 'absolute';
+    emailContainer.style.left = '-9999px';
     emailContainer.style.top = '0';
-    emailContainer.style.opacity = '0'; // Hide visually but keep in layout
-    emailContainer.style.pointerEvents = 'none';
+    // Remove opacity and pointer-events to ensure html2canvas can render
     // Log diagnostics
     setTimeout(() => {
         console.log('EMAIL container offsetHeight:', emailContainer.offsetHeight);
