@@ -73,22 +73,48 @@ Office.onReady(() => {
 async function createPdf(htmlBody, attachments, imgSources) {
     console.log('createPdf called');
     console.log('Starting PDF creation...');
-    // Use the static test div for PDF generation
-    const testDiv = document.getElementById('pdfTestDiv');
-    if (!testDiv) {
-        alert('Test div not found!');
+    // Use the visible emailToPdfDiv for PDF generation
+    const emailDiv = document.getElementById('emailToPdfDiv');
+    if (!emailDiv) {
+        alert('Email PDF div not found!');
         return;
     }
-    html2pdf().set({
-        margin: 10,
-        filename: 'email.pdf',
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        pagebreak: { mode: ['avoid-all', 'css'] }
-    }).from(testDiv).save().then(() => {
-        console.log('Static test div PDF generated and download triggered.');
-    }).catch(err => {
-        console.error('html2pdf.js failed:', err);
-    });
+    // Sanitize email HTML: remove <meta>, <script>, <style>, <link>
+    let sanitizedHtml = htmlBody.replace(/<\/?(meta|script|style|link)[^>]*>/gi, '');
+    emailDiv.innerHTML = sanitizedHtml;
+    emailDiv.style.display = 'block';
+    // Wait for images to load before generating PDF
+    const emailImages = Array.from(emailDiv.querySelectorAll('img'));
+    let loaded = 0;
+    function generatePdf() {
+        html2pdf().set({
+            margin: 10,
+            filename: 'email.pdf',
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+            pagebreak: { mode: ['avoid-all', 'css'] }
+        }).from(emailDiv).save().then(() => {
+            emailDiv.style.display = 'none';
+            console.log('Email div PDF generated and download triggered.');
+        }).catch(err => {
+            emailDiv.style.display = 'none';
+            console.error('html2pdf.js failed:', err);
+        });
+    }
+    if (emailImages.length > 0) {
+        emailImages.forEach(img => {
+            if (img.complete) {
+                loaded++;
+            } else {
+                img.onload = img.onerror = () => {
+                    loaded++;
+                    if (loaded === emailImages.length) generatePdf();
+                };
+            }
+        });
+        if (loaded === emailImages.length) generatePdf();
+    } else {
+        generatePdf();
+    }
 }
