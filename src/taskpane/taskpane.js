@@ -16,9 +16,18 @@ document.head.appendChild(pdfLibScript);
 
 
 // Attach handler after both Office.js and DOM are ready
+// Global error handler for debugging
+window.addEventListener('error', function(e) {
+    console.error('Global JS error:', e.message, e);
+});
+window.addEventListener('unhandledrejection', function(e) {
+    console.error('Unhandled promise rejection:', e.reason);
+});
+
 Office.onReady(() => {
     console.log('Office.js is ready');
     document.addEventListener('DOMContentLoaded', function() {
+        console.log('Attempting to attach handler to #convertBtn');
         const btn = document.getElementById('convertBtn');
         if (!btn) {
             console.error('Convert button not found in DOM!');
