@@ -73,66 +73,22 @@ Office.onReady(() => {
 async function createPdf(htmlBody, attachments, imgSources) {
     console.log('createPdf called');
     console.log('Starting PDF creation...');
-    // Create a container for the email HTML
-    const emailContainer = document.createElement('div');
-    // For debugging: use a simple static string instead of the email HTML
-    emailContainer.innerHTML = '<h1>Hello PDF!</h1><p>This is a test of html2pdf in Office add-in.</p>';
-    emailContainer.style.background = '#fff';
-    emailContainer.style.padding = '24px';
-    emailContainer.style.fontFamily = 'Arial, sans-serif';
-    emailContainer.style.width = '800px';
-    emailContainer.style.maxWidth = '100%';
-    emailContainer.style.minHeight = '400px';
-    emailContainer.style.height = 'auto';
-    emailContainer.style.overflow = 'visible';
-    emailContainer.style.position = 'fixed';
-    emailContainer.style.left = '0';
-    emailContainer.style.top = '0';
-    emailContainer.style.zIndex = '9999';
-    emailContainer.style.visibility = 'visible'; // Make visible for testing
-    emailContainer.style.border = '2px solid red'; // Debug border
-    document.body.appendChild(emailContainer);
-    // Log computed style and bounding rect for diagnostics
-    setTimeout(() => {
-        const rect = emailContainer.getBoundingClientRect();
-        const style = window.getComputedStyle(emailContainer);
-        console.log('EMAIL container bounding rect:', rect);
-        console.log('EMAIL container computed style:', style);
-        console.log('EMAIL container offsetHeight:', emailContainer.offsetHeight);
-        console.log('EMAIL container innerHTML:', emailContainer.innerHTML);
-    }, 100);
-    // Wait for images to load before generating PDF
-    const emailImages = Array.from(emailContainer.querySelectorAll('img'));
-    let loaded = 0;
-    function generatePdf() {
-        html2pdf().set({
-            margin: 10,
-            filename: 'email.pdf',
-            image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2, useCORS: true },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-            pagebreak: { mode: ['avoid-all', 'css'] }
-        }).from(emailContainer).save().then(() => {
-            document.body.removeChild(emailContainer);
-            console.log('Email body PDF generated and download triggered.');
-        }).catch(err => {
-            document.body.removeChild(emailContainer);
-            console.error('html2pdf.js failed:', err);
-        });
+    // Use the static test div for PDF generation
+    const testDiv = document.getElementById('pdfTestDiv');
+    if (!testDiv) {
+        alert('Test div not found!');
+        return;
     }
-    if (emailImages.length > 0) {
-        emailImages.forEach(img => {
-            if (img.complete) {
-                loaded++;
-            } else {
-                img.onload = img.onerror = () => {
-                    loaded++;
-                    if (loaded === emailImages.length) generatePdf();
-                };
-            }
-        });
-        if (loaded === emailImages.length) generatePdf();
-    } else {
-        generatePdf();
-    }
+    html2pdf().set({
+        margin: 10,
+        filename: 'email.pdf',
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak: { mode: ['avoid-all', 'css'] }
+    }).from(testDiv).save().then(() => {
+        console.log('Static test div PDF generated and download triggered.');
+    }).catch(err => {
+        console.error('html2pdf.js failed:', err);
+    });
 }
