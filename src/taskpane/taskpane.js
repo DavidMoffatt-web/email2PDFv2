@@ -166,12 +166,25 @@ async function createPdf(htmlBody, attachments, imgSources) {
                             if (window['mammoth']) return window['mammoth'];
                             try {
                                 if (typeof mammoth !== 'undefined') {
-                                    // Attach to window if not already
                                     window.mammoth = mammoth;
                                     return mammoth;
                                 }
                             } catch (e) {}
                             await new Promise(res => setTimeout(res, intervalMs));
+                        }
+                        // Fallback: fetch and eval Mammoth.js if not available
+                        try {
+                            console.log('Mammoth global still not available, fetching and evaluating script as fallback...');
+                            const mammothUrl = 'https://unpkg.com/mammoth@1.2.15/dist/mammoth.browser.min.js';
+                            const resp = await fetch(mammothUrl);
+                            const src = await resp.text();
+                            eval(src);
+                            if (window.mammoth) {
+                                console.log('Mammoth global available after eval fallback.');
+                                return window.mammoth;
+                            }
+                        } catch (e) {
+                            console.error('Failed to fetch/eval Mammoth.js fallback:', e);
                         }
                         return null;
                     }
@@ -184,6 +197,7 @@ async function createPdf(htmlBody, attachments, imgSources) {
                         }
                         mammothLib.convertToHtml({arrayBuffer}).then(result => {
                             const html = result.value;
+                            console.log('Mammoth.js HTML output:', html);
                             const docxContainer = document.createElement('div');
                             docxContainer.innerHTML = html;
                             docxContainer.style.background = '#fff';
@@ -191,32 +205,40 @@ async function createPdf(htmlBody, attachments, imgSources) {
                             docxContainer.style.fontFamily = 'Arial, sans-serif';
                             docxContainer.style.width = '800px';
                             docxContainer.style.maxWidth = '100%';
+                            docxContainer.style.minHeight = '400px';
                             docxContainer.style.height = 'auto';
                             docxContainer.style.overflow = 'visible';
+                            docxContainer.style.position = 'fixed';
+                            docxContainer.style.left = '-9999px'; // Hide but keep rendered
+                            docxContainer.style.top = '0';
+                            docxContainer.style.zIndex = '9999';
                             document.body.appendChild(docxContainer);
                             const images = Array.from(docxContainer.querySelectorAll('img'));
                             let loaded = 0;
                             function addDocxToPdf() {
-                                html2pdf().set({
-                                    margin: 10,
-                                    filename: 'email.pdf',
-                                    image: { type: 'jpeg', quality: 0.98 },
-                                    html2canvas: { scale: 2, useCORS: true },
-                                    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-                                    pagebreak: { mode: ['avoid-all', 'css'] }
-                                }).from(docxContainer).toPdf().get('pdf').then(pdf => {
-                                    const docxPdfBytes = pdf.output('arraybuffer');
-                                    PDFDocument.load(docxPdfBytes).then(docxPdf => {
-                                        docxPdf.getPageIndices().forEach(idx => {
-                                            docxPdf.copyPages(docxPdf, [idx]).then(copiedPages => {
-                                                copiedPages.forEach(p => pdfDoc.addPage(p));
+                                // Add a short delay to ensure rendering
+                                setTimeout(() => {
+                                    html2pdf().set({
+                                        margin: 10,
+                                        filename: 'email.pdf',
+                                        image: { type: 'jpeg', quality: 0.98 },
+                                        html2canvas: { scale: 2, useCORS: true },
+                                        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+                                        pagebreak: { mode: ['avoid-all', 'css'] }
+                                    }).from(docxContainer).toPdf().get('pdf').then(pdf => {
+                                        const docxPdfBytes = pdf.output('arraybuffer');
+                                        PDFDocument.load(docxPdfBytes).then(docxPdf => {
+                                            docxPdf.getPageIndices().forEach(idx => {
+                                                docxPdf.copyPages(docxPdf, [idx]).then(copiedPages => {
+                                                    copiedPages.forEach(p => pdfDoc.addPage(p));
+                                                });
                                             });
+                                            document.body.removeChild(docxContainer);
+                                            console.log('DOCX converted and merged.');
+                                            resolve();
                                         });
-                                        document.body.removeChild(docxContainer);
-                                        console.log('DOCX converted and merged.');
-                                        resolve();
                                     });
-                                });
+                                }, 250);
                             }
                             if (images.length > 0) {
                                 images.forEach(img => {
