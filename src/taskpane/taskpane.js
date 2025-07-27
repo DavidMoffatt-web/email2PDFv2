@@ -27,14 +27,23 @@ window.addEventListener('unhandledrejection', function(e) {
 Office.onReady(() => {
     console.log('Office.js is ready');
     document.addEventListener('DOMContentLoaded', function() {
-        console.log('Attempting to attach handler to #convertBtn');
-        const btn = document.getElementById('convertBtn');
-        if (!btn) {
-            console.error('Convert button not found in DOM!');
-            return;
+        try {
+            console.log('DOMContentLoaded event fired inside Office.onReady');
+            const btn = document.getElementById('convertBtn');
+            if (!btn) {
+                console.error('Convert button not found in DOM!');
+                return;
+            }
+            console.log('convertBtn found:', btn);
+            btn.onclick = async function() {
+                console.log('Convert button clicked.');
+                this.disabled = true;
+                this.textContent = 'Converting...';
+                // ...existing code...
+            };
+        } catch (err) {
+            console.error('Error in DOMContentLoaded handler:', err);
         }
-        console.log('convertBtn found:', btn);
-        btn.onclick = async function() {
             console.log('Convert button clicked.');
             this.disabled = true;
             this.textContent = 'Converting...';
@@ -181,8 +190,5 @@ Office.onReady(() => {
     });
 });
 // PDF generation logic moved into createPdf function
-async function createPdf(htmlBody, attachments, imgSources) {
-    let msgDiv = document.getElementById('pdf2email-message');
-
-}
+// ...existing function definitions like createPdf, createPdfLibTextPdf, etc...
 
