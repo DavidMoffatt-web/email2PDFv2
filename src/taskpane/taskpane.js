@@ -75,7 +75,8 @@ async function createPdf(htmlBody, attachments, imgSources) {
     console.log('Starting PDF creation...');
     // Create a container for the email HTML
     const emailContainer = document.createElement('div');
-    emailContainer.innerHTML = htmlBody;
+    // For debugging: use a simple static string instead of the email HTML
+    emailContainer.innerHTML = '<h1>Hello PDF!</h1><p>This is a test of html2pdf in Office add-in.</p>';
     emailContainer.style.background = '#fff';
     emailContainer.style.padding = '24px';
     emailContainer.style.fontFamily = 'Arial, sans-serif';
