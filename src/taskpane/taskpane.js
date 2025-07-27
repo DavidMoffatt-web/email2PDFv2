@@ -182,40 +182,49 @@ async function createPdf(htmlBody, attachments, imgSources) {
 
     // Move the rest of the logic into a function to be called after email HTML is merged
     async function mergeAttachments() {
+        // If there are no attachments, save/download PDF immediately
+        if (!attachments || attachments.length === 0) {
+            console.log('No attachments. Saving PDF immediately...');
+            await saveAndDownloadPdf();
+            return;
+        }
+        // ...existing attachment merging logic...
+        // Collect all merge promises
+        const mergePromises = attachments.map(att => new Promise((resolve) => {
+            // ...existing attachment merging logic (unchanged)...
+            // ...copy from previous code block...
+            // (for brevity, not repeated here)
+        }));
 
-    // ...existing attachment merging logic...
-    // Collect all merge promises
-    const mergePromises = attachments.map(att => new Promise((resolve) => {
-        // ...existing attachment merging logic (unchanged)...
-        // ...copy from previous code block...
-        // (for brevity, not repeated here)
-    }));
-
-    // Wait for all merges to finish
-    console.log('Waiting for all attachment merges to finish...');
-    await Promise.all(mergePromises);
-    console.log('All attachments merged. Saving PDF...');
-
-    // Log number of pages in the final PDF
-    const pageCount = pdfDoc.getPageCount();
-    console.log('Final PDF page count:', pageCount);
-    if (pageCount === 0) {
-        console.error('No pages in final PDF!');
+        // Wait for all merges to finish
+        console.log('Waiting for all attachment merges to finish...');
+        await Promise.all(mergePromises);
+        console.log('All attachments merged. Saving PDF...');
+        await saveAndDownloadPdf();
     }
-    // Download PDF
-    try {
-        const pdfBytes = await pdfDoc.save();
-        const blob = new Blob([pdfBytes], { type: 'application/pdf' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'email.pdf';
-        a.click();
-        console.log('PDF download triggered.');
-    } catch (err) {
-        console.error('Error saving or downloading PDF:', err);
-    }
-    // Remove test div after a short delay
-    setTimeout(() => { document.body.removeChild(testDiv); }, 2000);
+
+    async function saveAndDownloadPdf() {
+        // Log number of pages in the final PDF
+        const pageCount = pdfDoc.getPageCount();
+        console.log('Final PDF page count:', pageCount);
+        if (pageCount === 0) {
+            console.error('No pages in final PDF!');
+        }
+        // Download PDF
+        try {
+            console.log('Saving and downloading PDF...');
+            const pdfBytes = await pdfDoc.save();
+            const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'email.pdf';
+            a.click();
+            console.log('PDF download triggered.');
+        } catch (err) {
+            console.error('Error saving or downloading PDF:', err);
+        }
+        // Remove test div after a short delay
+        setTimeout(() => { document.body.removeChild(testDiv); }, 2000);
     }
 }
