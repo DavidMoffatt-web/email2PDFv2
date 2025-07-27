@@ -89,7 +89,7 @@ async function createPdf(htmlBody, attachments, imgSources) {
     emailContainer.style.left = '0';
     emailContainer.style.top = '0';
     emailContainer.style.zIndex = '9999';
-    emailContainer.style.visibility = 'hidden'; // Hide visually but keep in layout for html2canvas
+    emailContainer.style.visibility = 'visible'; // Make visible for testing
     emailContainer.style.border = '2px solid red'; // Debug border
     document.body.appendChild(emailContainer);
     // Log computed style and bounding rect for diagnostics
