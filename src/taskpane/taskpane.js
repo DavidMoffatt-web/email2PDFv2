@@ -86,21 +86,178 @@ async function createPdf(htmlBody, attachments, imgSources) {
     // Wait for images to load before generating PDF
     const emailImages = Array.from(emailDiv.querySelectorAll('img'));
     let loaded = 0;
-    function generatePdf() {
-    html2pdf().set({
-        margin: 0,
-        filename: 'email.pdf',
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        pagebreak: { mode: ['avoid-all', 'css'] }
-    }).from(emailDiv).save().then(() => {
+
+    // Helper: Download attachment as Blob
+    async function getAttachmentContent(attachment) {
+        return new Promise((resolve, reject) => {
+            Office.context.mailbox.item.getAttachmentContentAsync(attachment.id, (result) => {
+                if (result.status === Office.AsyncResultStatus.Succeeded) {
+                    let content = result.value.content;
+                    let type = result.value.format;
+                    let name = attachment.name;
+                    let mimeType = attachment.contentType || '';
+                    // Convert base64 to Blob if needed
+                    if (type === 'base64') {
+                        const byteChars = atob(content);
+                        const byteNumbers = new Array(byteChars.length);
+                        for (let i = 0; i < byteChars.length; i++) {
+                            byteNumbers[i] = byteChars.charCodeAt(i);
+                        }
+                        const byteArray = new Uint8Array(byteNumbers);
+                        resolve(new Blob([byteArray], { type: mimeType }));
+                    } else if (type === 'file') {
+                        // File is a URL (not common in Outlook web)
+                        fetch(content).then(r => r.blob()).then(resolve).catch(reject);
+                    } else {
+                        reject(new Error('Unknown attachment format: ' + type));
+                    }
+                } else {
+                    reject(result.error);
+                }
+            });
+        });
+    }
+
+    // Step 1: Download all attachments as blobs and detect type
+    let attachmentBlobs = [];
+    if (attachments && attachments.length > 0) {
+        for (let att of attachments) {
+            try {
+                const blob = await getAttachmentContent(att);
+                attachmentBlobs.push({
+                    name: att.name,
+                    type: att.contentType || blob.type,
+                    blob
+                });
+                console.log('Downloaded attachment:', att.name, att.contentType || blob.type);
+            } catch (err) {
+                console.error('Failed to download attachment', att.name, err);
+            }
+        }
+    }
+
+    // Step 2: Convert email HTML to PDF (as ArrayBuffer) using html2pdf
+    async function htmlToPdfBuffer(element) {
+        return new Promise((resolve, reject) => {
+            html2pdf().set({
+                margin: 0,
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2, useCORS: true },
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+                pagebreak: { mode: ['avoid-all', 'css'] }
+            }).from(element).toPdf().get('pdf').then(pdf => {
+                resolve(pdf.output('arraybuffer'));
+            }).catch(reject);
+        });
+    }
+
+    // Step 3: Convert/merge attachments
+    let pdfBuffers = [];
+    // 1. Email body as first PDF buffer
+    async function processEmailAndAttachments() {
+        // Email PDF
+        const emailPdfBuffer = await htmlToPdfBuffer(emailDiv);
+        pdfBuffers.push(emailPdfBuffer);
         emailDiv.style.display = 'none';
-        console.log('Email div PDF generated and download triggered.');
-    }).catch(err => {
-        emailDiv.style.display = 'none';
-        console.error('html2pdf.js failed:', err);
-    });
+
+        // 2. Attachments
+        for (let att of attachmentBlobs) {
+            // Images
+            if (att.type.startsWith('image/')) {
+                // Create an <img> element for the image
+                const img = document.createElement('img');
+                img.src = URL.createObjectURL(att.blob);
+                img.style.maxWidth = '100%';
+                img.style.display = 'block';
+                // Create a container div for the image
+                const imgDiv = document.createElement('div');
+                imgDiv.style.background = '#fff';
+                imgDiv.style.width = '100%';
+                imgDiv.style.maxWidth = '794px';
+                imgDiv.style.minHeight = '400px';
+                imgDiv.style.margin = '0 auto';
+                imgDiv.style.boxSizing = 'border-box';
+                imgDiv.style.padding = '24px';
+                imgDiv.appendChild(img);
+                document.body.appendChild(imgDiv);
+                // Wait for image to load
+                await new Promise(res => {
+                    if (img.complete) res();
+                    else img.onload = img.onerror = res;
+                });
+                // Convert to PDF buffer
+                try {
+                    const imgPdfBuffer = await htmlToPdfBuffer(imgDiv);
+                    pdfBuffers.push(imgPdfBuffer);
+                } catch (err) {
+                    console.error('Failed to convert image attachment to PDF:', att.name, err);
+                }
+                document.body.removeChild(imgDiv);
+            }
+            // DOCX
+            else if (att.name.toLowerCase().endsWith('.docx')) {
+                try {
+                    const arrayBuffer = await att.blob.arrayBuffer();
+                    const mammothResult = await window.mammoth.convertToHtml({ arrayBuffer });
+                    // Render HTML to a div
+                    const docxDiv = document.createElement('div');
+                    docxDiv.innerHTML = mammothResult.value;
+                    docxDiv.style.background = '#fff';
+                    docxDiv.style.width = '100%';
+                    docxDiv.style.maxWidth = '794px';
+                    docxDiv.style.minHeight = '400px';
+                    docxDiv.style.margin = '0 auto';
+                    docxDiv.style.boxSizing = 'border-box';
+                    docxDiv.style.padding = '24px';
+                    document.body.appendChild(docxDiv);
+                    // Convert to PDF buffer
+                    const docxPdfBuffer = await htmlToPdfBuffer(docxDiv);
+                    pdfBuffers.push(docxPdfBuffer);
+                    document.body.removeChild(docxDiv);
+                } catch (err) {
+                    console.error('Failed to convert DOCX attachment to PDF:', att.name, err);
+                }
+            }
+            // PDF
+            else if (att.type === 'application/pdf' || att.name.toLowerCase().endsWith('.pdf')) {
+                try {
+                    const pdfArrayBuffer = await att.blob.arrayBuffer();
+                    pdfBuffers.push(pdfArrayBuffer);
+                } catch (err) {
+                    console.error('Failed to add PDF attachment:', att.name, err);
+                }
+            }
+            // Other types: skip for now, could add more logic here
+            else {
+                console.warn('Skipping unsupported attachment type:', att.name, att.type);
+            }
+        }
+
+        // Step 4: Merge all PDF buffers using pdf-lib
+        try {
+            const mergedPdf = await PDFDocument.create();
+            for (let buf of pdfBuffers) {
+                const srcPdf = await PDFDocument.load(buf);
+                const pages = await mergedPdf.copyPages(srcPdf, srcPdf.getPageIndices());
+                pages.forEach(page => mergedPdf.addPage(page));
+            }
+            const mergedBytes = await mergedPdf.save();
+            // Download merged PDF
+            const blob = new Blob([mergedBytes], { type: 'application/pdf' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'email_and_attachments.pdf';
+            a.click();
+            console.log('Merged PDF download triggered.');
+        } catch (err) {
+            console.error('Failed to merge PDFs:', err);
+        }
+    }
+
+    // Wait for images in email, then process everything
+    function onEmailImagesLoaded() {
+        processEmailAndAttachments();
     }
     if (emailImages.length > 0) {
         emailImages.forEach(img => {
@@ -109,12 +266,12 @@ async function createPdf(htmlBody, attachments, imgSources) {
             } else {
                 img.onload = img.onerror = () => {
                     loaded++;
-                    if (loaded === emailImages.length) generatePdf();
+                    if (loaded === emailImages.length) onEmailImagesLoaded();
                 };
             }
         });
-        if (loaded === emailImages.length) generatePdf();
+        if (loaded === emailImages.length) onEmailImagesLoaded();
     } else {
-        generatePdf();
+        onEmailImagesLoaded();
     }
 }
