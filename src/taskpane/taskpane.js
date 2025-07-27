@@ -180,6 +180,9 @@ Office.onReady(() => {
         };
     });
 });
+// PDF generation logic moved into createPdf function
+async function createPdf(htmlBody, attachments, imgSources) {
+    let msgDiv = document.getElementById('pdf2email-message');
     if (!msgDiv) {
         msgDiv = document.createElement('div');
         msgDiv.id = 'pdf2email-message';
@@ -443,4 +446,5 @@ Office.onReady(() => {
     } else {
         onEmailImagesLoaded();
     }
+}
 
