@@ -106,7 +106,7 @@ async function createPdf(htmlBody, attachments, imgSources) {
     emailContainer.style.position = 'fixed';
     emailContainer.style.left = '0';
     emailContainer.style.top = '0';
-    emailContainer.style.visibility = 'hidden'; // Hide visually but keep in layout
+    emailContainer.style.opacity = '0'; // Hide visually but keep in layout
     emailContainer.style.pointerEvents = 'none';
     // Log diagnostics
     setTimeout(() => {
@@ -119,6 +119,15 @@ async function createPdf(htmlBody, attachments, imgSources) {
     const emailImages = Array.from(emailContainer.querySelectorAll('img'));
     let loaded = 0;
     function addEmailHtmlToPdf() {
+        let resolved = false;
+        const timeout = setTimeout(() => {
+            if (!resolved) {
+                console.error('html2pdf.js timed out after 5 seconds. Skipping email body merge.');
+                try { document.body.removeChild(emailContainer); } catch (e) {}
+                resolved = true;
+                mergeAttachments();
+            }
+        }, 5000);
         setTimeout(() => {
             html2pdf().set({
                 margin: 10,
@@ -128,6 +137,9 @@ async function createPdf(htmlBody, attachments, imgSources) {
                 jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
                 pagebreak: { mode: ['avoid-all', 'css'] }
             }).from(emailContainer).toPdf().get('pdf').then(async pdf => {
+                if (resolved) return;
+                resolved = true;
+                clearTimeout(timeout);
                 try {
                     const emailPdfBytes = pdf.output('arraybuffer');
                     const emailPdf = await PDFDocument.load(emailPdfBytes);
@@ -143,6 +155,9 @@ async function createPdf(htmlBody, attachments, imgSources) {
                 // Continue with attachments merging as before
                 await mergeAttachments();
             }).catch(err => {
+                if (resolved) return;
+                resolved = true;
+                clearTimeout(timeout);
                 console.error('html2pdf.js failed:', err);
                 document.body.removeChild(emailContainer);
                 mergeAttachments();
