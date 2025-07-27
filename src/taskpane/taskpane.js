@@ -1,12 +1,13 @@
 console.log('taskpane.js loaded');
 // Load pdf-lib from CDN for browser compatibility
-let PDFDocument;
+let PDFDocument, StandardFonts;
 console.log('Loading PDFLib script...');
 const pdfLibScript = document.createElement('script');
 pdfLibScript.src = 'https://cdn.jsdelivr.net/npm/pdf-lib/dist/pdf-lib.min.js';
 pdfLibScript.onload = () => {
     console.log('PDFLib script loaded.');
     PDFDocument = window.PDFLib.PDFDocument;
+    StandardFonts = window.PDFLib.StandardFonts;
 };
 document.head.appendChild(pdfLibScript);
 
@@ -71,18 +72,40 @@ Office.onReady(() => {
 
 
 async function createPdf(htmlBody, attachments, imgSources) {
+    // Add or get a message div for UI feedback
+    let msgDiv = document.getElementById('pdf2email-message');
+    if (!msgDiv) {
+        msgDiv = document.createElement('div');
+        msgDiv.id = 'pdf2email-message';
+        msgDiv.style.color = '#b00';
+        msgDiv.style.fontSize = '1em';
+        msgDiv.style.margin = '12px 0';
+        msgDiv.style.display = 'none';
+        const appDiv = document.getElementById('app');
+        if (appDiv) appDiv.parentNode.insertBefore(msgDiv, appDiv.nextSibling);
+        else document.body.insertBefore(msgDiv, document.body.firstChild);
+    }
+    function showMessage(msg) {
+        msgDiv.textContent = msg;
+        msgDiv.style.display = 'block';
+    }
+    function hideMessage() {
+        msgDiv.textContent = '';
+        msgDiv.style.display = 'none';
+    }
     console.log('createPdf called');
     console.log('Starting PDF creation...');
     // Use the visible emailToPdfDiv for PDF generation
     const emailDiv = document.getElementById('emailToPdfDiv');
     if (!emailDiv) {
-        alert('Email PDF div not found!');
+        showMessage('Email PDF div not found!');
         return;
     }
     // Sanitize email HTML: remove <meta>, <script>, <style>, <link>
     let sanitizedHtml = htmlBody.replace(/<\/?(meta|script|style|link)[^>]*>/gi, '');
     emailDiv.innerHTML = sanitizedHtml;
     emailDiv.style.display = 'block';
+    hideMessage();
     // Wait for images to load before generating PDF
     const emailImages = Array.from(emailDiv.querySelectorAll('img'));
     let loaded = 0;
@@ -250,23 +273,22 @@ async function createPdf(htmlBody, attachments, imgSources) {
                     pages.forEach(page => mergedPdf.addPage(page));
                 } catch (err) {
                     console.error('Failed to load/merge a PDF (possibly encrypted or corrupt):', err);
-                    // If this is an attachment, add to skippedFiles
                     if (i > 0) skippedFiles.push((attachmentBlobs[i-1]?.name || 'Attachment') + ' (PDF merge failed)');
                     failedMerges.push(i);
                 }
             }
             // Optionally, add a summary page if any files were skipped
             if (skippedFiles.length > 0) {
-                const summaryPage = await mergedPdf.addPage();
+                const summaryPage = mergedPdf.addPage();
                 const { width, height } = summaryPage.getSize();
-                const font = await mergedPdf.embedFont(PDFDocument.PDFFont ? PDFDocument.PDFFont.Helvetica : (await mergedPdf.embedFont('Helvetica')));
+                const font = await mergedPdf.embedFont(StandardFonts.Helvetica);
                 const text = 'The following attachments could not be merged into the PDF:\n' + skippedFiles.map(f => '- ' + f).join('\n');
                 summaryPage.drawText(text, {
                     x: 50,
                     y: height - 50,
                     size: 12,
                     font: font,
-                    color: { r: 0, g: 0, b: 0 },
+                    color: undefined,
                     maxWidth: width - 100,
                     lineHeight: 16
                 });
@@ -282,12 +304,16 @@ async function createPdf(htmlBody, attachments, imgSources) {
             console.log('Merged PDF download triggered.');
             // Show warning in UI if any files were skipped
             if (skippedFiles.length > 0) {
-                alert('Some attachments could not be merged into the PDF:\n' + skippedFiles.join('\n'));
+                showMessage('Some attachments could not be merged into the PDF: ' + skippedFiles.join('; '));
+            } else {
+                hideMessage();
             }
         } catch (err) {
             console.error('Failed to merge PDFs:', err);
             if (skippedFiles.length > 0) {
-                alert('Some attachments could not be merged into the PDF:\n' + skippedFiles.join('\n'));
+                showMessage('Some attachments could not be merged into the PDF: ' + skippedFiles.join('; '));
+            } else {
+                showMessage('Failed to merge PDFs: ' + err.message);
             }
         }
     }
