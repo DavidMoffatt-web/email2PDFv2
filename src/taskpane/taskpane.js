@@ -106,8 +106,14 @@ async function createPdf(htmlBody, attachments, imgSources) {
     emailContainer.style.position = 'absolute';
     emailContainer.style.left = '0';
     emailContainer.style.top = '0';
-    emailContainer.style.opacity = '0'; // Hide visually but keep rendered
+    emailContainer.style.opacity = '1';
     emailContainer.style.pointerEvents = 'none';
+    emailContainer.style.top = '-9999px'; // Move off-screen but keep visible
+    // Log diagnostics
+    setTimeout(() => {
+        console.log('EMAIL container offsetHeight:', emailContainer.offsetHeight);
+        console.log('EMAIL container innerHTML:', emailContainer.innerHTML);
+    }, 100);
     emailContainer.style.zIndex = '9999';
     document.body.appendChild(emailContainer);
     // Wait for images to load
@@ -123,15 +129,24 @@ async function createPdf(htmlBody, attachments, imgSources) {
                 jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
                 pagebreak: { mode: ['avoid-all', 'css'] }
             }).from(emailContainer).toPdf().get('pdf').then(async pdf => {
-                const emailPdfBytes = pdf.output('arraybuffer');
-                const emailPdf = await PDFDocument.load(emailPdfBytes);
-                const pageIndices = emailPdf.getPageIndices();
-                const copiedPages = await pdfDoc.copyPages(emailPdf, pageIndices);
-                copiedPages.forEach(p => pdfDoc.addPage(p));
-                document.body.removeChild(emailContainer);
-                console.log('Email body HTML converted and merged.');
+                try {
+                    const emailPdfBytes = pdf.output('arraybuffer');
+                    const emailPdf = await PDFDocument.load(emailPdfBytes);
+                    const pageIndices = emailPdf.getPageIndices();
+                    const copiedPages = await pdfDoc.copyPages(emailPdf, pageIndices);
+                    copiedPages.forEach(p => pdfDoc.addPage(p));
+                    document.body.removeChild(emailContainer);
+                    console.log('Email body HTML converted and merged.');
+                } catch (err) {
+                    console.error('Error merging email HTML PDF:', err);
+                    document.body.removeChild(emailContainer);
+                }
                 // Continue with attachments merging as before
                 await mergeAttachments();
+            }).catch(err => {
+                console.error('html2pdf.js failed:', err);
+                document.body.removeChild(emailContainer);
+                mergeAttachments();
             });
         }, 500);
     }
@@ -168,7 +183,11 @@ async function createPdf(htmlBody, attachments, imgSources) {
     console.log('All attachments merged. Saving PDF...');
 
     // Log number of pages in the final PDF
-    console.log('Final PDF page count:', pdfDoc.getPageCount());
+    const pageCount = pdfDoc.getPageCount();
+    console.log('Final PDF page count:', pageCount);
+    if (pageCount === 0) {
+        console.error('No pages in final PDF!');
+    }
     // Download PDF
     try {
         const pdfBytes = await pdfDoc.save();
