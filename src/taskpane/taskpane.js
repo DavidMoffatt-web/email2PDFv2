@@ -13,6 +13,9 @@ document.head.appendChild(pdfLibScript);
 
 
 
+
+
+// Attach handler after both Office.js and DOM are ready
 Office.onReady(() => {
     console.log('Office.js is ready');
     document.addEventListener('DOMContentLoaded', function() {
@@ -23,401 +26,132 @@ Office.onReady(() => {
         }
         console.log('convertBtn found:', btn);
         btn.onclick = async function() {
-        console.log('Convert button clicked.');
-        this.disabled = true;
-        this.textContent = 'Converting...';
-        try {
-            // Gather metadata first
-            const item = Office.context.mailbox.item;
-            const getMetadata = () => {
+            console.log('Convert button clicked.');
+            this.disabled = true;
+            this.textContent = 'Converting...';
+            try {
                 // Helper to format a person as email (Name)
                 const formatPerson = (p) => {
-    const btn = document.getElementById('convertBtn');
-    console.log('convertBtn found:', btn);
-    btn.onclick = async function() {
-        // Gather metadata first
-        const item = Office.context.mailbox.item;
-        const getMetadata = () => {
-            // Helper to format a person as email (Name)
-            const formatPerson = (p) => {
-                if (!p) return '';
-                if (p.displayName && p.emailAddress) {
-                    if (p.displayName === p.emailAddress) return p.emailAddress;
-                    return `${p.emailAddress} (${p.displayName})`;
-                }
-                return p.emailAddress || p.displayName || '';
-            };
-            // Helper to format a list
-            const formatList = (arr) => (arr && arr.length ? arr.map(formatPerson).join('; ') : '');
-            return {
-                from: item.from ? formatPerson(item.from) : '',
-                to: formatList(item.to),
-                cc: formatList(item.cc),
-                subject: item.subject || '',
-                date: (item.dateTimeCreated ? new Date(item.dateTimeCreated).toLocaleString() : '')
-            };
-        };
-        Office.context.mailbox.item.body.getAsync(Office.CoercionType.Html, async (result) => {
-            // Get selected mode and engine (move to top of callback for scoping)
-            const modeSel = document.getElementById('pdfMode');
-            const mode = modeSel ? modeSel.value : 'full';
-            const engineSel = document.getElementById('pdfEngine');
-            const engine = engineSel ? engineSel.value : 'html2pdf';
-            console.log('PDF Generation Mode:', mode, 'Engine:', engine);
+                    if (!p) return '';
+                    if (p.displayName && p.emailAddress) {
+                        if (p.displayName === p.emailAddress) return p.emailAddress;
+                        return `${p.emailAddress} (${p.displayName})`;
+                    }
+                    return p.emailAddress || p.displayName || '';
+                };
+                // Helper to format a list
+                const formatList = (arr) => (arr && arr.length ? arr.map(formatPerson).join('; ') : '');
+                // Gather metadata
+                const item = Office.context.mailbox.item;
+                const meta = {
+                    from: item.from ? formatPerson(item.from) : '',
+                    to: formatList(item.to),
+                    cc: formatList(item.cc),
+                    subject: item.subject || '',
+                    date: (item.dateTimeCreated ? new Date(item.dateTimeCreated).toLocaleString() : '')
+                };
+                const metaHtml = `<div style="background:#f5f5f5;padding:12px 18px 12px 18px;margin-bottom:18px;border-radius:6px;font-size:1em;line-height:1.5;">
+                    <div><b>From:</b> ${meta.from}</div>
+                    <div><b>To:</b> ${meta.to}</div>
+                    ${meta.cc ? `<div><b>CC:</b> ${meta.cc}</div>` : ''}
+                    <div><b>Subject:</b> ${meta.subject}</div>
+                    <div><b>Sent:</b> ${meta.date}</div>
+                </div>`;
 
-            if (result.status === Office.AsyncResultStatus.Succeeded) {
-                const htmlBody = result.value;
-                const attachments = Office.context.mailbox.item.attachments;
-                const imgSources = [];
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(htmlBody, 'text/html');
-                const imgs = doc.querySelectorAll('img');
-                imgs.forEach(img => {
-                    if (img.src) imgSources.push(img.src);
+                // Get selected mode and engine
+                const modeSel = document.getElementById('pdfMode');
+                const mode = modeSel ? modeSel.value : 'full';
+                const engineSel = document.getElementById('pdfEngine');
+                const engine = engineSel ? engineSel.value : 'html2pdf';
+                console.log('PDF Generation Mode:', mode, 'Engine:', engine);
+
+                // Get email body
+                Office.context.mailbox.item.body.getAsync(Office.CoercionType.Html, async (result) => {
+                    if (result.status === Office.AsyncResultStatus.Succeeded) {
+                        const htmlBody = result.value;
+                        const attachments = Office.context.mailbox.item.attachments;
+                        const imgSources = [];
+                        const parser = new DOMParser();
+                        const doc = parser.parseFromString(htmlBody, 'text/html');
+                        const imgs = doc.querySelectorAll('img');
+                        imgs.forEach(img => {
+                            if (img.src) imgSources.push(img.src);
+                        });
+
+                        // Wait for pdf-lib to load if needed
+                        if (engine === 'pdf-lib' && !PDFDocument) {
+                            console.error('PDF library not loaded yet.');
+                            let msgDiv = document.getElementById('pdf2email-message');
+                            if (!msgDiv) {
+                                msgDiv = document.createElement('div');
+                                msgDiv.id = 'pdf2email-message';
+                                msgDiv.style.color = '#b00';
+                                msgDiv.style.fontSize = '1em';
+                                msgDiv.style.margin = '12px 0';
+                                msgDiv.style.display = 'block';
+                                const appDiv = document.getElementById('app');
+                                if (appDiv) appDiv.parentNode.insertBefore(msgDiv, appDiv.nextSibling);
+                                else document.body.insertBefore(msgDiv, document.body.firstChild);
+                            }
+                            msgDiv.textContent = 'PDF library not loaded yet. Please try again in a moment.';
+                            this.disabled = false;
+                            this.textContent = 'Convert Email to PDF';
+                            return;
+                        }
+
+                        try {
+                            if (engine === 'pdf-lib') {
+                                await createPdfLibTextPdf(metaHtml, htmlBody, attachments);
+                            } else {
+                                if (mode === 'full') {
+                                    await createPdf(metaHtml + htmlBody, attachments, imgSources);
+                                } else if (mode === 'individual') {
+                                    await createIndividualPdfs(metaHtml + htmlBody, attachments, imgSources, false, metaHtml);
+                                } else if (mode === 'images') {
+                                    await createIndividualPdfs(metaHtml + htmlBody, attachments, imgSources, true, metaHtml);
+                                } else {
+                                    await createPdf(metaHtml + htmlBody, attachments, imgSources);
+                                }
+                            }
+                        } catch (err) {
+                            console.error('Error in PDF generation:', err);
+                            let msgDiv = document.getElementById('pdf2email-message');
+                            if (!msgDiv) {
+                                msgDiv = document.createElement('div');
+                                msgDiv.id = 'pdf2email-message';
+                                msgDiv.style.color = '#b00';
+                                msgDiv.style.fontSize = '1em';
+                                msgDiv.style.margin = '12px 0';
+                                msgDiv.style.display = 'block';
+                                const appDiv = document.getElementById('app');
+                                if (appDiv) appDiv.parentNode.insertBefore(msgDiv, appDiv.nextSibling);
+                                else document.body.insertBefore(msgDiv, document.body.firstChild);
+                            }
+                            msgDiv.textContent = 'PDF generation failed: ' + err.message;
+                        }
+                        this.disabled = false;
+                        this.textContent = 'Convert Email to PDF';
+                    } else {
+                        console.error('Failed to get email body:', result.error);
+                        let msgDiv = document.getElementById('pdf2email-message');
+                        if (!msgDiv) {
+                            msgDiv = document.createElement('div');
+                            msgDiv.id = 'pdf2email-message';
+                            msgDiv.style.color = '#b00';
+                            msgDiv.style.fontSize = '1em';
+                            msgDiv.style.margin = '12px 0';
+                            msgDiv.style.display = 'block';
+                            const appDiv = document.getElementById('app');
+                            if (appDiv) appDiv.parentNode.insertBefore(msgDiv, appDiv.nextSibling);
+                            else document.body.insertBefore(msgDiv, document.body.firstChild);
+                        }
+                        msgDiv.textContent = 'Failed to get email body: ' + result.error;
+                        this.disabled = false;
+                        this.textContent = 'Convert Email to PDF';
+                    }
                 });
-
-                // Wait for pdf-lib to load
-                if (!PDFDocument) {
-                    console.error('PDF library not loaded yet.');
-                    // Use UI message div instead of alert
-                    let msgDiv = document.getElementById('pdf2email-message');
-                    if (!msgDiv) {
-                        msgDiv = document.createElement('div');
-                        msgDiv.id = 'pdf2email-message';
-                        msgDiv.style.color = '#b00';
-                        msgDiv.style.fontSize = '1em';
-                        msgDiv.style.margin = '12px 0';
-                        msgDiv.style.display = 'block';
-                        const appDiv = document.getElementById('app');
-                        if (appDiv) appDiv.parentNode.insertBefore(msgDiv, appDiv.nextSibling);
-                        else document.body.insertBefore(msgDiv, document.body.firstChild);
-                    }
-                    msgDiv.textContent = 'PDF library not loaded yet. Please try again in a moment.';
-                    this.disabled = false;
-                    this.textContent = 'Convert Email to PDF';
-                    return;
-                }
-
-                // Compose metadata header HTML
-                const meta = getMetadata();
-                const metaHtml = `<div style=\"background:#f5f5f5;padding:12px 18px 12px 18px;margin-bottom:18px;border-radius:6px;font-size:1em;line-height:1.5;\">\n                    <div><b>From:</b> ${meta.from}</div>\n                    <div><b>To:</b> ${meta.to}</div>\n                    ${meta.cc ? `<div><b>CC:</b> ${meta.cc}</div>` : ''}\n                    <div><b>Subject:</b> ${meta.subject}</div>\n                    <div><b>Sent:</b> ${meta.date}</div>\n                </div>`;
-
-                // Pass metadata HTML to PDF logic
-                try {
-                    if (engine === 'pdf-lib') {
-                        // Use pdf-lib for selectable text (basic formatting only)
-                        await createPdfLibTextPdf(metaHtml, htmlBody, attachments);
-                    } else {
-                        // Default: html2pdf (image-based, visually accurate)
-                        if (mode === 'full') {
-                            await createPdf(metaHtml + htmlBody, attachments, imgSources);
-                        } else if (mode === 'individual') {
-                            await createIndividualPdfs(metaHtml + htmlBody, attachments, imgSources, false, metaHtml);
-                        } else if (mode === 'images') {
-                            await createIndividualPdfs(metaHtml + htmlBody, attachments, imgSources, true, metaHtml);
-                        } else {
-                            await createPdf(metaHtml + htmlBody, attachments, imgSources);
-                        }
-                    }
-                } catch (err) {
-                    console.error('Error in PDF generation:', err);
-                    let msgDiv = document.getElementById('pdf2email-message');
-                    if (!msgDiv) {
-                        msgDiv = document.createElement('div');
-                        msgDiv.id = 'pdf2email-message';
-                        msgDiv.style.color = '#b00';
-                        msgDiv.style.fontSize = '1em';
-                        msgDiv.style.margin = '12px 0';
-                        msgDiv.style.display = 'block';
-                        const appDiv = document.getElementById('app');
-                        if (appDiv) appDiv.parentNode.insertBefore(msgDiv, appDiv.nextSibling);
-                        else document.body.insertBefore(msgDiv, document.body.firstChild);
-                    }
-                    msgDiv.textContent = 'PDF generation failed: ' + err.message;
-                }
-                this.disabled = false;
-                this.textContent = 'Convert Email to PDF';
-            } else {
-                console.error('Failed to get email body:', result.error);
-                let msgDiv = document.getElementById('pdf2email-message');
-                if (!msgDiv) {
-                    msgDiv = document.createElement('div');
-                    msgDiv.id = 'pdf2email-message';
-                    msgDiv.style.color = '#b00';
-                    msgDiv.style.fontSize = '1em';
-                    msgDiv.style.margin = '12px 0';
-                    msgDiv.style.display = 'block';
-                    const appDiv = document.getElementById('app');
-                    if (appDiv) appDiv.parentNode.insertBefore(msgDiv, appDiv.nextSibling);
-                    else document.body.insertBefore(msgDiv, document.body.firstChild);
-                }
-                msgDiv.textContent = 'Failed to get email body: ' + result.error;
-                this.disabled = false;
-                this.textContent = 'Convert Email to PDF';
-            }
-        });
-    };
-                // Pass metadata HTML to PDF logic
-                try {
-                    if (engine === 'pdf-lib') {
-                        // Use pdf-lib for selectable text (basic formatting only)
-                        await createPdfLibTextPdf(metaHtml, htmlBody, attachments);
-                    } else {
-                        // Default: html2pdf (image-based, visually accurate)
-                        if (mode === 'full') {
-                            await createPdf(metaHtml + htmlBody, attachments, imgSources);
-                        } else if (mode === 'individual') {
-                            await createIndividualPdfs(metaHtml + htmlBody, attachments, imgSources, false, metaHtml);
-                        } else if (mode === 'images') {
-                            await createIndividualPdfs(metaHtml + htmlBody, attachments, imgSources, true, metaHtml);
-                        } else {
-                            await createPdf(metaHtml + htmlBody, attachments, imgSources);
-                        }
-                    }
-                } catch (err) {
-                    console.error('Error in PDF generation:', err);
-                    let msgDiv = document.getElementById('pdf2email-message');
-                    if (!msgDiv) {
-                        msgDiv = document.createElement('div');
-                        msgDiv.id = 'pdf2email-message';
-                        msgDiv.style.color = '#b00';
-                        msgDiv.style.fontSize = '1em';
-                        msgDiv.style.margin = '12px 0';
-                        msgDiv.style.display = 'block';
-                        const appDiv = document.getElementById('app');
-                        if (appDiv) appDiv.parentNode.insertBefore(msgDiv, appDiv.nextSibling);
-                        else document.body.insertBefore(msgDiv, document.body.firstChild);
-                    }
-                    msgDiv.textContent = 'PDF generation failed: ' + err.message;
-                }
-                this.disabled = false;
-                this.textContent = 'Convert Email to PDF';
-            } else {
-                console.error('Failed to get email body:', result.error);
-                let msgDiv = document.getElementById('pdf2email-message');
-                if (!msgDiv) {
-                    msgDiv = document.createElement('div');
-                    msgDiv.id = 'pdf2email-message';
-                    msgDiv.style.color = '#b00';
-                    msgDiv.style.fontSize = '1em';
-                    msgDiv.style.margin = '12px 0';
-                    msgDiv.style.display = 'block';
-                    const appDiv = document.getElementById('app');
-                    if (appDiv) appDiv.parentNode.insertBefore(msgDiv, appDiv.nextSibling);
-                    else document.body.insertBefore(msgDiv, document.body.firstChild);
-                }
-                msgDiv.textContent = 'Failed to get email body: ' + result.error;
-                this.disabled = false;
-                this.textContent = 'Convert Email to PDF';
-            }
-        });
-                        msgDiv.style.color = '#b00';
-                        msgDiv.style.fontSize = '1em';
-                        msgDiv.style.margin = '12px 0';
-                        msgDiv.style.display = 'block';
-                        const appDiv = document.getElementById('app');
-                        if (appDiv) appDiv.parentNode.insertBefore(msgDiv, appDiv.nextSibling);
-                        else document.body.insertBefore(msgDiv, document.body.firstChild);
-                    }
-                    msgDiv.textContent = 'Failed to get email body: ' + result.error;
-                    this.disabled = false;
-                    this.textContent = 'Convert Email to PDF';
-                }
-            });
-        } catch (err) {
-            console.error('Unexpected error in button handler:', err);
-            let msgDiv = document.getElementById('pdf2email-message');
-            if (!msgDiv) {
-                msgDiv = document.createElement('div');
-                msgDiv.id = 'pdf2email-message';
-                msgDiv.style.color = '#b00';
-                msgDiv.style.fontSize = '1em';
-                msgDiv.style.margin = '12px 0';
-                msgDiv.style.display = 'block';
-                const appDiv = document.getElementById('app');
-                if (appDiv) appDiv.parentNode.insertBefore(msgDiv, appDiv.nextSibling);
-                else document.body.insertBefore(msgDiv, document.body.firstChild);
-            }
-            msgDiv.textContent = 'Unexpected error: ' + err.message;
-            this.disabled = false;
-            this.textContent = 'Convert Email to PDF';
-        }
-    };
-// Helper for individual PDFs mode
-// metaHtml is optional, for prepending to the email body only
-async function createIndividualPdfs(htmlBody, attachments, imgSources, includeEmailImages, metaHtml) {
-    // UI message div
-    let msgDiv = document.getElementById('pdf2email-message');
-    function showMessage(msg) {
-        msgDiv.textContent = msg;
-        msgDiv.style.display = 'block';
-    }
-    function hideMessage() {
-        msgDiv.textContent = '';
-        msgDiv.style.display = 'none';
-    }
-    hideMessage();
-
-    // Helper: Download attachment as Blob
-    async function getAttachmentContent(attachment) {
-        return new Promise((resolve, reject) => {
-            Office.context.mailbox.item.getAttachmentContentAsync(attachment.id, (result) => {
-                if (result.status === Office.AsyncResultStatus.Succeeded) {
-                    let content = result.value.content;
-                    let type = result.value.format;
-                    let name = attachment.name;
-                    let mimeType = attachment.contentType || '';
-                    if (type === 'base64') {
-                        const byteChars = atob(content);
-                        const byteNumbers = new Array(byteChars.length);
-                        for (let i = 0; i < byteChars.length; i++) {
-                            byteNumbers[i] = byteChars.charCodeAt(i);
-                        }
-                        const byteArray = new Uint8Array(byteNumbers);
-                        resolve(new Blob([byteArray], { type: mimeType }));
-                    } else if (type === 'file') {
-                        fetch(content).then(r => r.blob()).then(resolve).catch(reject);
-                    } else {
-                        reject(new Error('Unknown attachment format: ' + type));
-                    }
-                } else {
-                    reject(result.error);
-                }
-            });
-        });
-    }
-
-    // Download all attachments as blobs and detect type
-    let attachmentBlobs = [];
-    if (attachments && attachments.length > 0) {
-        for (let att of attachments) {
-            try {
-                const blob = await getAttachmentContent(att);
-                attachmentBlobs.push({
-                    name: att.name,
-                    type: att.contentType || blob.type,
-                    blob
-                });
-                console.log('Downloaded attachment:', att.name, att.contentType || blob.type);
             } catch (err) {
-                console.error('Failed to download attachment', att.name, err);
-            }
-        }
-    }
-
-    // Helper: Convert HTML element to PDF and trigger download
-    async function htmlToPdfAndDownload(element, filename) {
-        return new Promise((resolve, reject) => {
-            html2pdf().set({
-                margin: 0,
-                image: { type: 'jpeg', quality: 0.98 },
-                html2canvas: { scale: 2, useCORS: true },
-                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-                pagebreak: { mode: ['avoid-all', 'css'] }
-        // Gather metadata first
-        const item = Office.context.mailbox.item;
-        const getMetadata = () => {
-            // Helper to format a person as email (Name)
-            const formatPerson = (p) => {
-                if (!p) return '';
-                if (p.displayName && p.emailAddress) {
-                    if (p.displayName === p.emailAddress) return p.emailAddress;
-                    return `${p.emailAddress} (${p.displayName})`;
-                }
-                return p.emailAddress || p.displayName || '';
-            };
-            // Helper to format a list
-            const formatList = (arr) => (arr && arr.length ? arr.map(formatPerson).join('; ') : '');
-            return {
-                from: item.from ? formatPerson(item.from) : '',
-                to: formatList(item.to),
-                cc: formatList(item.cc),
-                subject: item.subject || '',
-                date: (item.dateTimeCreated ? new Date(item.dateTimeCreated).toLocaleString() : '')
-            };
-        };
-        Office.context.mailbox.item.body.getAsync(Office.CoercionType.Html, async (result) => {
-            // Get selected mode and engine (move to top of callback for scoping)
-            const modeSel = document.getElementById('pdfMode');
-            const mode = modeSel ? modeSel.value : 'full';
-            const engineSel = document.getElementById('pdfEngine');
-            const engine = engineSel ? engineSel.value : 'html2pdf';
-            console.log('PDF Generation Mode:', mode, 'Engine:', engine);
-
-            if (result.status === Office.AsyncResultStatus.Succeeded) {
-                const htmlBody = result.value;
-                const attachments = Office.context.mailbox.item.attachments;
-                const imgSources = [];
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(htmlBody, 'text/html');
-                const imgs = doc.querySelectorAll('img');
-                imgs.forEach(img => {
-                    if (img.src) imgSources.push(img.src);
-                });
-
-                // Wait for pdf-lib to load
-                if (!PDFDocument) {
-                    console.error('PDF library not loaded yet.');
-                    // Use UI message div instead of alert
-                    let msgDiv = document.getElementById('pdf2email-message');
-                    if (!msgDiv) {
-                        msgDiv = document.createElement('div');
-                        msgDiv.id = 'pdf2email-message';
-                        msgDiv.style.color = '#b00';
-                        msgDiv.style.fontSize = '1em';
-                        msgDiv.style.margin = '12px 0';
-                        msgDiv.style.display = 'block';
-                        const appDiv = document.getElementById('app');
-                        if (appDiv) appDiv.parentNode.insertBefore(msgDiv, appDiv.nextSibling);
-                        else document.body.insertBefore(msgDiv, document.body.firstChild);
-                    }
-                    msgDiv.textContent = 'PDF library not loaded yet. Please try again in a moment.';
-                    this.disabled = false;
-                    this.textContent = 'Convert Email to PDF';
-                    return;
-                }
-
-                // Compose metadata header HTML
-                const meta = getMetadata();
-                const metaHtml = `<div style=\"background:#f5f5f5;padding:12px 18px 12px 18px;margin-bottom:18px;border-radius:6px;font-size:1em;line-height:1.5;\">\n                    <div><b>From:</b> ${meta.from}</div>\n                    <div><b>To:</b> ${meta.to}</div>\n                    ${meta.cc ? `<div><b>CC:</b> ${meta.cc}</div>` : ''}\n                    <div><b>Subject:</b> ${meta.subject}</div>\n                    <div><b>Sent:</b> ${meta.date}</div>\n                </div>`;
-
-                // Pass metadata HTML to PDF logic
-                try {
-                    if (engine === 'pdf-lib') {
-                        // Use pdf-lib for selectable text (basic formatting only)
-                        await createPdfLibTextPdf(metaHtml, htmlBody, attachments);
-                    } else {
-                        // Default: html2pdf (image-based, visually accurate)
-                        if (mode === 'full') {
-                            await createPdf(metaHtml + htmlBody, attachments, imgSources);
-                        } else if (mode === 'individual') {
-                            await createIndividualPdfs(metaHtml + htmlBody, attachments, imgSources, false, metaHtml);
-                        } else if (mode === 'images') {
-                            await createIndividualPdfs(metaHtml + htmlBody, attachments, imgSources, true, metaHtml);
-                        } else {
-                            await createPdf(metaHtml + htmlBody, attachments, imgSources);
-                        }
-                    }
-                } catch (err) {
-                    console.error('Error in PDF generation:', err);
-                    let msgDiv = document.getElementById('pdf2email-message');
-                    if (!msgDiv) {
-                        msgDiv = document.createElement('div');
-                        msgDiv.id = 'pdf2email-message';
-                        msgDiv.style.color = '#b00';
-                        msgDiv.style.fontSize = '1em';
-                        msgDiv.style.margin = '12px 0';
-                        msgDiv.style.display = 'block';
-                        const appDiv = document.getElementById('app');
-                        if (appDiv) appDiv.parentNode.insertBefore(msgDiv, appDiv.nextSibling);
-                        else document.body.insertBefore(msgDiv, document.body.firstChild);
-                    }
-                    msgDiv.textContent = 'PDF generation failed: ' + err.message;
-                }
-                this.disabled = false;
-                this.textContent = 'Convert Email to PDF';
-            } else {
-                console.error('Failed to get email body:', result.error);
+                console.error('Unexpected error in button handler:', err);
                 let msgDiv = document.getElementById('pdf2email-message');
                 if (!msgDiv) {
                     msgDiv = document.createElement('div');
@@ -430,33 +164,13 @@ async function createIndividualPdfs(htmlBody, attachments, imgSources, includeEm
                     if (appDiv) appDiv.parentNode.insertBefore(msgDiv, appDiv.nextSibling);
                     else document.body.insertBefore(msgDiv, document.body.firstChild);
                 }
-                msgDiv.textContent = 'Failed to get email body: ' + result.error;
+                msgDiv.textContent = 'Unexpected error: ' + err.message;
                 this.disabled = false;
                 this.textContent = 'Convert Email to PDF';
             }
-        });
-    };
-                    });
-                    await htmlToPdfAndDownload(imgDiv, `email_image_${++imgCount}.pdf`);
-                    document.body.removeChild(imgDiv);
-                } catch (err) {
-                    console.error('Failed to convert embedded email image to PDF:', img.src, err);
-                }
-            }
-        }
-    }
-
-    showMessage('All PDFs have been generated and downloaded.');
-    setTimeout(hideMessage, 4000);
-}
+        };
+    });
 });
-
-// ...existing Office.js code to get htmlBody, attachments, imgSources...
-
-
-async function createPdf(htmlBody, attachments, imgSources) {
-    // Add or get a message div for UI feedback
-    let msgDiv = document.getElementById('pdf2email-message');
     if (!msgDiv) {
         msgDiv = document.createElement('div');
         msgDiv.id = 'pdf2email-message';
@@ -720,4 +434,4 @@ async function createPdf(htmlBody, attachments, imgSources) {
     } else {
         onEmailImagesLoaded();
     }
-}
+
