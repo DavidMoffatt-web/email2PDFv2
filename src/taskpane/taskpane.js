@@ -22,6 +22,17 @@ Office.onReady(() => {
         this.disabled = true;
         this.textContent = 'Converting...';
         try {
+            // Gather metadata first
+            const item = Office.context.mailbox.item;
+            const getMetadata = () => {
+                return {
+                    from: (item.from && item.from.displayName ? item.from.displayName + ' <' + item.from.emailAddress + '>' : ''),
+                    to: (item.to && item.to.length ? item.to.map(e => e.displayName + ' <' + e.emailAddress + '>').join('; ') : ''),
+                    cc: (item.cc && item.cc.length ? item.cc.map(e => e.displayName + ' <' + e.emailAddress + '>').join('; ') : ''),
+                    subject: item.subject || '',
+                    date: (item.dateTimeCreated ? new Date(item.dateTimeCreated).toLocaleString() : '')
+                };
+            };
             Office.context.mailbox.item.body.getAsync(Office.CoercionType.Html, async (result) => {
                 if (result.status === Office.AsyncResultStatus.Succeeded) {
                     const htmlBody = result.value;
@@ -61,15 +72,26 @@ Office.onReady(() => {
                     const mode = modeSel ? modeSel.value : 'full';
                     console.log('PDF Generation Mode:', mode);
 
+                    // Compose metadata header HTML
+                    const meta = getMetadata();
+                    const metaHtml = `<div style="background:#f5f5f5;padding:12px 18px 12px 18px;margin-bottom:18px;border-radius:6px;font-size:1em;line-height:1.5;">
+                        <div><b>From:</b> ${meta.from}</div>
+                        <div><b>To:</b> ${meta.to}</div>
+                        ${meta.cc ? `<div><b>CC:</b> ${meta.cc}</div>` : ''}
+                        <div><b>Subject:</b> ${meta.subject}</div>
+                        <div><b>Sent:</b> ${meta.date}</div>
+                    </div>`;
+
+                    // Pass metadata HTML to PDF logic
                     try {
                         if (mode === 'full') {
-                            await createPdf(htmlBody, attachments, imgSources);
+                            await createPdf(metaHtml + htmlBody, attachments, imgSources);
                         } else if (mode === 'individual') {
-                            await createIndividualPdfs(htmlBody, attachments, imgSources, false);
+                            await createIndividualPdfs(metaHtml + htmlBody, attachments, imgSources, false, metaHtml);
                         } else if (mode === 'images') {
-                            await createIndividualPdfs(htmlBody, attachments, imgSources, true);
+                            await createIndividualPdfs(metaHtml + htmlBody, attachments, imgSources, true, metaHtml);
                         } else {
-                            await createPdf(htmlBody, attachments, imgSources);
+                            await createPdf(metaHtml + htmlBody, attachments, imgSources);
                         }
                     } catch (err) {
                         console.error('Error in PDF generation:', err);
@@ -128,7 +150,8 @@ Office.onReady(() => {
         }
     };
 // Helper for individual PDFs mode
-async function createIndividualPdfs(htmlBody, attachments, imgSources, includeEmailImages) {
+// metaHtml is optional, for prepending to the email body only
+async function createIndividualPdfs(htmlBody, attachments, imgSources, includeEmailImages, metaHtml) {
     // UI message div
     let msgDiv = document.getElementById('pdf2email-message');
     function showMessage(msg) {
@@ -209,9 +232,13 @@ async function createIndividualPdfs(htmlBody, attachments, imgSources, includeEm
         });
     }
 
-    // 1. Email body as PDF
+    // 1. Email body as PDF (with metadata header if provided)
     const emailDiv = document.getElementById('emailToPdfDiv');
     let sanitizedHtml = htmlBody.replace(/<\/?(meta|script|style|link)[^>]*>/gi, '');
+    // If metaHtml is provided, ensure it's prepended (avoid double-prepending)
+    if (metaHtml && !sanitizedHtml.startsWith(metaHtml)) {
+        sanitizedHtml = metaHtml + sanitizedHtml;
+    }
     emailDiv.innerHTML = sanitizedHtml;
     emailDiv.style.display = 'block';
     await htmlToPdfAndDownload(emailDiv, 'email.pdf');
