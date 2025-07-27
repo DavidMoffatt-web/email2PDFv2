@@ -15,9 +15,14 @@ document.head.appendChild(pdfLibScript);
 
 Office.onReady(() => {
     console.log('Office.js is ready');
-    const btn = document.getElementById('convertBtn');
-    console.log('convertBtn found:', btn);
-    btn.onclick = async function() {
+    document.addEventListener('DOMContentLoaded', function() {
+        const btn = document.getElementById('convertBtn');
+        if (!btn) {
+            console.error('Convert button not found in DOM!');
+            return;
+        }
+        console.log('convertBtn found:', btn);
+        btn.onclick = async function() {
         console.log('Convert button clicked.');
         this.disabled = true;
         this.textContent = 'Converting...';
