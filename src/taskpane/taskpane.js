@@ -103,12 +103,11 @@ async function createPdf(htmlBody, attachments, imgSources) {
     emailContainer.style.minHeight = '400px';
     emailContainer.style.height = 'auto';
     emailContainer.style.overflow = 'visible';
-    emailContainer.style.position = 'absolute';
+    emailContainer.style.position = 'fixed';
     emailContainer.style.left = '0';
     emailContainer.style.top = '0';
-    emailContainer.style.opacity = '1';
+    emailContainer.style.visibility = 'hidden'; // Hide visually but keep in layout
     emailContainer.style.pointerEvents = 'none';
-    emailContainer.style.top = '-9999px'; // Move off-screen but keep visible
     // Log diagnostics
     setTimeout(() => {
         console.log('EMAIL container offsetHeight:', emailContainer.offsetHeight);
