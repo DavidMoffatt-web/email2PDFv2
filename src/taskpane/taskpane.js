@@ -25,10 +25,21 @@ Office.onReady(() => {
             // Gather metadata first
             const item = Office.context.mailbox.item;
             const getMetadata = () => {
+                // Helper to format a person as email (Name)
+                const formatPerson = (p) => {
+                    if (!p) return '';
+                    if (p.displayName && p.emailAddress) {
+                        if (p.displayName === p.emailAddress) return p.emailAddress;
+                        return `${p.emailAddress} (${p.displayName})`;
+                    }
+                    return p.emailAddress || p.displayName || '';
+                };
+                // Helper to format a list
+                const formatList = (arr) => (arr && arr.length ? arr.map(formatPerson).join('; ') : '');
                 return {
-                    from: (item.from && item.from.displayName ? item.from.displayName + ' <' + item.from.emailAddress + '>' : ''),
-                    to: (item.to && item.to.length ? item.to.map(e => e.displayName + ' <' + e.emailAddress + '>').join('; ') : ''),
-                    cc: (item.cc && item.cc.length ? item.cc.map(e => e.displayName + ' <' + e.emailAddress + '>').join('; ') : ''),
+                    from: item.from ? formatPerson(item.from) : '',
+                    to: formatList(item.to),
+                    cc: formatList(item.cc),
                     subject: item.subject || '',
                     date: (item.dateTimeCreated ? new Date(item.dateTimeCreated).toLocaleString() : '')
                 };
