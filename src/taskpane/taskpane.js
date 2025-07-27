@@ -431,6 +431,13 @@ async function createIndividualPdfs(htmlBody, attachments, imgSources, includeEm
                     imgEl.style.display = 'block';
                     const imgDiv = document.createElement('div');
                     imgDiv.style.background = '#fff';
+                    // Get selected mode and engine (move to top of callback for scoping)
+                    const modeSel = document.getElementById('pdfMode');
+                    const mode = modeSel ? modeSel.value : 'full';
+                    const engineSel = document.getElementById('pdfEngine');
+                    const engine = engineSel ? engineSel.value : 'html2pdf';
+                    console.log('PDF Generation Mode:', mode, 'Engine:', engine);
+
                     imgDiv.style.width = '100%';
                     imgDiv.style.maxWidth = '794px';
                     imgDiv.style.minHeight = '400px';
