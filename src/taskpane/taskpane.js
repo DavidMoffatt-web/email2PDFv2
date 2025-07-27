@@ -237,9 +237,13 @@ async function createPdf(htmlBody, attachments, imgSources) {
         try {
             const mergedPdf = await PDFDocument.create();
             for (let buf of pdfBuffers) {
-                const srcPdf = await PDFDocument.load(buf);
-                const pages = await mergedPdf.copyPages(srcPdf, srcPdf.getPageIndices());
-                pages.forEach(page => mergedPdf.addPage(page));
+                try {
+                    const srcPdf = await PDFDocument.load(buf, { ignoreEncryption: true });
+                    const pages = await mergedPdf.copyPages(srcPdf, srcPdf.getPageIndices());
+                    pages.forEach(page => mergedPdf.addPage(page));
+                } catch (err) {
+                    console.error('Failed to load/merge a PDF (possibly encrypted or corrupt):', err);
+                }
             }
             const mergedBytes = await mergedPdf.save();
             // Download merged PDF
