@@ -172,20 +172,6 @@ async function createPdf(htmlBody, attachments, imgSources) {
                             } catch (e) {}
                             await new Promise(res => setTimeout(res, intervalMs));
                         }
-                        // Fallback: fetch and eval Mammoth.js if not available
-                        try {
-                            console.log('Mammoth global still not available, fetching and evaluating script as fallback...');
-                            const mammothUrl = 'https://unpkg.com/mammoth@1.2.15/dist/mammoth.browser.min.js';
-                            const resp = await fetch(mammothUrl);
-                            const src = await resp.text();
-                            eval(src);
-                            if (window.mammoth) {
-                                console.log('Mammoth global available after eval fallback.');
-                                return window.mammoth;
-                            }
-                        } catch (e) {
-                            console.error('Failed to fetch/eval Mammoth.js fallback:', e);
-                        }
                         return null;
                     }
                     async function runDocxConversion() {
@@ -263,7 +249,7 @@ async function createPdf(htmlBody, attachments, imgSources) {
                     if (!window.mammoth && typeof mammoth === 'undefined') {
                         console.log('Mammoth not found, loading dynamically...');
                         const mammothScript = document.createElement('script');
-                        mammothScript.src = 'https://unpkg.com/mammoth@1.2.15/dist/mammoth.browser.min.js';
+                        mammothScript.src = '../images/mammoth.browser.min.js';
                         mammothScript.onload = () => {
                             console.log('Mammoth loaded dynamically:', window.mammoth, typeof mammoth);
                         };
