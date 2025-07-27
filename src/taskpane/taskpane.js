@@ -37,35 +37,289 @@ Office.onReady(() => {
                     // Wait for pdf-lib to load
                     if (!PDFDocument) {
                         console.error('PDF library not loaded yet.');
-                        alert('PDF library not loaded yet. Please try again in a moment.');
+                        // Use UI message div instead of alert
+                        let msgDiv = document.getElementById('pdf2email-message');
+                        if (!msgDiv) {
+                            msgDiv = document.createElement('div');
+                            msgDiv.id = 'pdf2email-message';
+                            msgDiv.style.color = '#b00';
+                            msgDiv.style.fontSize = '1em';
+                            msgDiv.style.margin = '12px 0';
+                            msgDiv.style.display = 'block';
+                            const appDiv = document.getElementById('app');
+                            if (appDiv) appDiv.parentNode.insertBefore(msgDiv, appDiv.nextSibling);
+                            else document.body.insertBefore(msgDiv, document.body.firstChild);
+                        }
+                        msgDiv.textContent = 'PDF library not loaded yet. Please try again in a moment.';
                         this.disabled = false;
                         this.textContent = 'Convert Email to PDF';
                         return;
                     }
 
-                    console.log('Calling createPdf...');
+                    // Get selected mode
+                    const modeSel = document.getElementById('pdfMode');
+                    const mode = modeSel ? modeSel.value : 'full';
+                    console.log('PDF Generation Mode:', mode);
+
                     try {
-                        await createPdf(htmlBody, attachments, imgSources);
+                        if (mode === 'full') {
+                            await createPdf(htmlBody, attachments, imgSources);
+                        } else if (mode === 'individual') {
+                            await createIndividualPdfs(htmlBody, attachments, imgSources, false);
+                        } else if (mode === 'images') {
+                            await createIndividualPdfs(htmlBody, attachments, imgSources, true);
+                        } else {
+                            await createPdf(htmlBody, attachments, imgSources);
+                        }
                     } catch (err) {
-                        console.error('Error in createPdf:', err);
-                        alert('PDF generation failed: ' + err.message);
+                        console.error('Error in PDF generation:', err);
+                        let msgDiv = document.getElementById('pdf2email-message');
+                        if (!msgDiv) {
+                            msgDiv = document.createElement('div');
+                            msgDiv.id = 'pdf2email-message';
+                            msgDiv.style.color = '#b00';
+                            msgDiv.style.fontSize = '1em';
+                            msgDiv.style.margin = '12px 0';
+                            msgDiv.style.display = 'block';
+                            const appDiv = document.getElementById('app');
+                            if (appDiv) appDiv.parentNode.insertBefore(msgDiv, appDiv.nextSibling);
+                            else document.body.insertBefore(msgDiv, document.body.firstChild);
+                        }
+                        msgDiv.textContent = 'PDF generation failed: ' + err.message;
                     }
                     this.disabled = false;
                     this.textContent = 'Convert Email to PDF';
                 } else {
                     console.error('Failed to get email body:', result.error);
-                    alert('Failed to get email body: ' + result.error);
+                    let msgDiv = document.getElementById('pdf2email-message');
+                    if (!msgDiv) {
+                        msgDiv = document.createElement('div');
+                        msgDiv.id = 'pdf2email-message';
+                        msgDiv.style.color = '#b00';
+                        msgDiv.style.fontSize = '1em';
+                        msgDiv.style.margin = '12px 0';
+                        msgDiv.style.display = 'block';
+                        const appDiv = document.getElementById('app');
+                        if (appDiv) appDiv.parentNode.insertBefore(msgDiv, appDiv.nextSibling);
+                        else document.body.insertBefore(msgDiv, document.body.firstChild);
+                    }
+                    msgDiv.textContent = 'Failed to get email body: ' + result.error;
                     this.disabled = false;
                     this.textContent = 'Convert Email to PDF';
                 }
             });
         } catch (err) {
             console.error('Unexpected error in button handler:', err);
-            alert('Unexpected error: ' + err.message);
+            let msgDiv = document.getElementById('pdf2email-message');
+            if (!msgDiv) {
+                msgDiv = document.createElement('div');
+                msgDiv.id = 'pdf2email-message';
+                msgDiv.style.color = '#b00';
+                msgDiv.style.fontSize = '1em';
+                msgDiv.style.margin = '12px 0';
+                msgDiv.style.display = 'block';
+                const appDiv = document.getElementById('app');
+                if (appDiv) appDiv.parentNode.insertBefore(msgDiv, appDiv.nextSibling);
+                else document.body.insertBefore(msgDiv, document.body.firstChild);
+            }
+            msgDiv.textContent = 'Unexpected error: ' + err.message;
             this.disabled = false;
             this.textContent = 'Convert Email to PDF';
         }
     };
+// Helper for individual PDFs mode
+async function createIndividualPdfs(htmlBody, attachments, imgSources, includeEmailImages) {
+    // UI message div
+    let msgDiv = document.getElementById('pdf2email-message');
+    function showMessage(msg) {
+        msgDiv.textContent = msg;
+        msgDiv.style.display = 'block';
+    }
+    function hideMessage() {
+        msgDiv.textContent = '';
+        msgDiv.style.display = 'none';
+    }
+    hideMessage();
+
+    // Helper: Download attachment as Blob
+    async function getAttachmentContent(attachment) {
+        return new Promise((resolve, reject) => {
+            Office.context.mailbox.item.getAttachmentContentAsync(attachment.id, (result) => {
+                if (result.status === Office.AsyncResultStatus.Succeeded) {
+                    let content = result.value.content;
+                    let type = result.value.format;
+                    let name = attachment.name;
+                    let mimeType = attachment.contentType || '';
+                    if (type === 'base64') {
+                        const byteChars = atob(content);
+                        const byteNumbers = new Array(byteChars.length);
+                        for (let i = 0; i < byteChars.length; i++) {
+                            byteNumbers[i] = byteChars.charCodeAt(i);
+                        }
+                        const byteArray = new Uint8Array(byteNumbers);
+                        resolve(new Blob([byteArray], { type: mimeType }));
+                    } else if (type === 'file') {
+                        fetch(content).then(r => r.blob()).then(resolve).catch(reject);
+                    } else {
+                        reject(new Error('Unknown attachment format: ' + type));
+                    }
+                } else {
+                    reject(result.error);
+                }
+            });
+        });
+    }
+
+    // Download all attachments as blobs and detect type
+    let attachmentBlobs = [];
+    if (attachments && attachments.length > 0) {
+        for (let att of attachments) {
+            try {
+                const blob = await getAttachmentContent(att);
+                attachmentBlobs.push({
+                    name: att.name,
+                    type: att.contentType || blob.type,
+                    blob
+                });
+                console.log('Downloaded attachment:', att.name, att.contentType || blob.type);
+            } catch (err) {
+                console.error('Failed to download attachment', att.name, err);
+            }
+        }
+    }
+
+    // Helper: Convert HTML element to PDF and trigger download
+    async function htmlToPdfAndDownload(element, filename) {
+        return new Promise((resolve, reject) => {
+            html2pdf().set({
+                margin: 0,
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2, useCORS: true },
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+                pagebreak: { mode: ['avoid-all', 'css'] }
+            }).from(element).toPdf().get('pdf').then(pdf => {
+                const blob = pdf.output('blob');
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                a.click();
+                resolve();
+            }).catch(reject);
+        });
+    }
+
+    // 1. Email body as PDF
+    const emailDiv = document.getElementById('emailToPdfDiv');
+    let sanitizedHtml = htmlBody.replace(/<\/?(meta|script|style|link)[^>]*>/gi, '');
+    emailDiv.innerHTML = sanitizedHtml;
+    emailDiv.style.display = 'block';
+    await htmlToPdfAndDownload(emailDiv, 'email.pdf');
+    emailDiv.style.display = 'none';
+
+    // 2. Attachments as PDFs
+    for (let att of attachmentBlobs) {
+        if (att.type.startsWith('image/')) {
+            const img = document.createElement('img');
+            img.src = URL.createObjectURL(att.blob);
+            img.style.maxWidth = '100%';
+            img.style.display = 'block';
+            const imgDiv = document.createElement('div');
+            imgDiv.style.background = '#fff';
+            imgDiv.style.width = '100%';
+            imgDiv.style.maxWidth = '794px';
+            imgDiv.style.minHeight = '400px';
+            imgDiv.style.margin = '0 auto';
+            imgDiv.style.boxSizing = 'border-box';
+            imgDiv.style.padding = '24px';
+            imgDiv.appendChild(img);
+            document.body.appendChild(imgDiv);
+            await new Promise(res => {
+                if (img.complete) res();
+                else img.onload = img.onerror = res;
+            });
+            try {
+                await htmlToPdfAndDownload(imgDiv, att.name.replace(/\.[^/.]+$/, '') + '.pdf');
+            } catch (err) {
+                console.error('Failed to convert image attachment to PDF:', att.name, err);
+            }
+            document.body.removeChild(imgDiv);
+        } else if (att.name.toLowerCase().endsWith('.docx')) {
+            try {
+                const arrayBuffer = await att.blob.arrayBuffer();
+                const mammothResult = await window.mammoth.convertToHtml({ arrayBuffer });
+                const docxDiv = document.createElement('div');
+                docxDiv.innerHTML = mammothResult.value;
+                docxDiv.style.background = '#fff';
+                docxDiv.style.width = '100%';
+                docxDiv.style.maxWidth = '794px';
+                docxDiv.style.minHeight = '400px';
+                docxDiv.style.margin = '0 auto';
+                docxDiv.style.boxSizing = 'border-box';
+                docxDiv.style.padding = '24px';
+                document.body.appendChild(docxDiv);
+                await htmlToPdfAndDownload(docxDiv, att.name.replace(/\.[^/.]+$/, '') + '.pdf');
+                document.body.removeChild(docxDiv);
+            } catch (err) {
+                console.error('Failed to convert DOCX attachment to PDF:', att.name, err);
+            }
+        } else if (att.type === 'application/pdf' || att.name.toLowerCase().endsWith('.pdf')) {
+            try {
+                // Download as-is
+                const arrayBuffer = await att.blob.arrayBuffer();
+                const blob = new Blob([arrayBuffer], { type: 'application/pdf' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = att.name;
+                a.click();
+            } catch (err) {
+                console.error('Failed to download PDF attachment:', att.name, err);
+            }
+        } else {
+            console.warn('Skipping unsupported attachment type:', att.name, att.type);
+        }
+    }
+
+    // 3. Embedded images in email (if requested)
+    if (includeEmailImages) {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(htmlBody, 'text/html');
+        const imgs = doc.querySelectorAll('img');
+        let imgCount = 0;
+        for (let img of imgs) {
+            if (img.src) {
+                try {
+                    const imgEl = document.createElement('img');
+                    imgEl.src = img.src;
+                    imgEl.style.maxWidth = '100%';
+                    imgEl.style.display = 'block';
+                    const imgDiv = document.createElement('div');
+                    imgDiv.style.background = '#fff';
+                    imgDiv.style.width = '100%';
+                    imgDiv.style.maxWidth = '794px';
+                    imgDiv.style.minHeight = '400px';
+                    imgDiv.style.margin = '0 auto';
+                    imgDiv.style.boxSizing = 'border-box';
+                    imgDiv.style.padding = '24px';
+                    imgDiv.appendChild(imgEl);
+                    document.body.appendChild(imgDiv);
+                    await new Promise(res => {
+                        if (imgEl.complete) res();
+                        else imgEl.onload = imgEl.onerror = res;
+                    });
+                    await htmlToPdfAndDownload(imgDiv, `email_image_${++imgCount}.pdf`);
+                    document.body.removeChild(imgDiv);
+                } catch (err) {
+                    console.error('Failed to convert embedded email image to PDF:', img.src, err);
+                }
+            }
+        }
+    }
+
+    showMessage('All PDFs have been generated and downloaded.');
+    setTimeout(hideMessage, 4000);
+}
 });
 
 // ...existing Office.js code to get htmlBody, attachments, imgSources...
