@@ -95,14 +95,20 @@ Office.onReady(() => {
 
                     // Pass metadata HTML to PDF logic
                     try {
-                        if (mode === 'full') {
-                            await createPdf(metaHtml + htmlBody, attachments, imgSources);
-                        } else if (mode === 'individual') {
-                            await createIndividualPdfs(metaHtml + htmlBody, attachments, imgSources, false, metaHtml);
-                        } else if (mode === 'images') {
-                            await createIndividualPdfs(metaHtml + htmlBody, attachments, imgSources, true, metaHtml);
+                        if (engine === 'pdf-lib') {
+                            // Use pdf-lib for selectable text (basic formatting only)
+                            await createPdfLibTextPdf(metaHtml, htmlBody, attachments);
                         } else {
-                            await createPdf(metaHtml + htmlBody, attachments, imgSources);
+                            // Default: html2pdf (image-based, visually accurate)
+                            if (mode === 'full') {
+                                await createPdf(metaHtml + htmlBody, attachments, imgSources);
+                            } else if (mode === 'individual') {
+                                await createIndividualPdfs(metaHtml + htmlBody, attachments, imgSources, false, metaHtml);
+                            } else if (mode === 'images') {
+                                await createIndividualPdfs(metaHtml + htmlBody, attachments, imgSources, true, metaHtml);
+                            } else {
+                                await createPdf(metaHtml + htmlBody, attachments, imgSources);
+                            }
                         }
                     } catch (err) {
                         console.error('Error in PDF generation:', err);
@@ -122,6 +128,97 @@ Office.onReady(() => {
                     }
                     this.disabled = false;
                     this.textContent = 'Convert Email to PDF';
+
+// --- pdf-lib selectable text PDF (basic) ---
+async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
+    let msgDiv = document.getElementById('pdf2email-message');
+    if (!msgDiv) {
+        msgDiv = document.createElement('div');
+        msgDiv.id = 'pdf2email-message';
+        msgDiv.style.color = '#b00';
+        msgDiv.style.fontSize = '1em';
+        msgDiv.style.margin = '12px 0';
+        msgDiv.style.display = 'block';
+        const appDiv = document.getElementById('app');
+        if (appDiv) appDiv.parentNode.insertBefore(msgDiv, appDiv.nextSibling);
+        else document.body.insertBefore(msgDiv, document.body.firstChild);
+    }
+    function showMessage(msg) {
+        msgDiv.textContent = msg;
+        msgDiv.style.display = 'block';
+    }
+    function hideMessage() {
+        msgDiv.textContent = '';
+        msgDiv.style.display = 'none';
+    }
+    showMessage('Generating selectable text PDF (pdf-lib)...');
+    try {
+        // Extract plain text from HTML (strip tags, preserve line breaks)
+        function htmlToPlainText(html) {
+            // Replace <br> and <div> with newlines, remove all other tags
+            return html
+                .replace(/<\/?(div|p|br|tr|li|h[1-6])[^>]*>/gi, '\n')
+                .replace(/<[^>]+>/g, '')
+                .replace(/\n{2,}/g, '\n')
+                .replace(/&nbsp;/g, ' ')
+                .replace(/&amp;/g, '&')
+                .replace(/&lt;/g, '<')
+                .replace(/&gt;/g, '>')
+                .replace(/&quot;/g, '"')
+                .replace(/&#39;/g, "'")
+                .trim();
+        }
+        const metaText = htmlToPlainText(metaHtml);
+        const bodyText = htmlToPlainText(htmlBody);
+        const fullText = metaText + '\n\n' + bodyText;
+        // Create PDF
+        const pdfDoc = await PDFDocument.create();
+        const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+        const page = pdfDoc.addPage();
+        const { width, height } = page.getSize();
+        const fontSize = 12;
+        // Split text into lines that fit the page
+        function splitText(text, maxWidth) {
+            const words = text.split(/\s+/);
+            let lines = [], line = '';
+            for (let word of words) {
+                const testLine = line ? line + ' ' + word : word;
+                const size = font.widthOfTextAtSize(testLine, fontSize);
+                if (size > maxWidth && line) {
+                    lines.push(line);
+                    line = word;
+                } else {
+                    line = testLine;
+                }
+            }
+            if (line) lines.push(line);
+            return lines;
+        }
+        const margin = 50;
+        const maxWidth = width - 2 * margin;
+        const lines = splitText(fullText, maxWidth);
+        let y = height - margin;
+        for (let line of lines) {
+            if (y < margin) {
+                y = height - margin;
+                page = pdfDoc.addPage();
+            }
+            page.drawText(line, { x: margin, y: y, size: fontSize, font });
+            y -= fontSize + 4;
+        }
+        const pdfBytes = await pdfDoc.save();
+        const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'email_text.pdf';
+        a.click();
+        showMessage('Selectable text PDF generated (pdf-lib).');
+        setTimeout(hideMessage, 4000);
+    } catch (err) {
+        showMessage('Failed to generate selectable text PDF: ' + err.message);
+    }
+}
                 } else {
                     console.error('Failed to get email body:', result.error);
                     let msgDiv = document.getElementById('pdf2email-message');

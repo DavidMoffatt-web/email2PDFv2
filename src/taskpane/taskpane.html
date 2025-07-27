@@ -23,13 +23,39 @@
             <option value="individual">Individual PDFs (email and each attachment)</option>
             <option value="images">Individual PDFs (attachments + each embedded image in email)</option>
         </select>
+        <div style="margin-bottom:12px;">
+            <label for="pdfEngine"><b>PDF Engine:</b></label>
+            <select id="pdfEngine">
+                <option value="html2pdf">html2pdf (best visual match, not selectable text)</option>
+                <option value="pdf-lib">pdf-lib (selectable text, basic formatting only)</option>
+            </select>
+            <div id="pdfEngine-warning" style="font-size:0.95em;color:#b00;margin-top:6px;max-width:420px;">
+                <b>Note:</b> <span id="pdfEngine-warning-text">html2pdf produces visually accurate PDFs, but text is not selectable. pdf-lib produces selectable text, but formatting is very basic.</span>
+            </div>
+        </div>
+        <script>
+        // Update warning text dynamically if needed
+        document.addEventListener('DOMContentLoaded', function() {
+            var engineSel = document.getElementById('pdfEngine');
+            var warning = document.getElementById('pdfEngine-warning-text');
+            if (engineSel && warning) {
+                engineSel.addEventListener('change', function() {
+                    if (engineSel.value === 'html2pdf') {
+                        warning.textContent = 'html2pdf produces visually accurate PDFs, but text is not selectable.';
+                    } else {
+                        warning.textContent = 'pdf-lib produces selectable text, but formatting is very basic.';
+                    }
+                });
+            }
+        });
+        </script>
         <button id="convertBtn">Convert Email to PDF</button>
-        <span id="version" style="font-size:0.9em;color:#888;">v1.5.1</span>
+        <span id="version" style="font-size:0.9em;color:#888;">v1.5.2</span>
     </div>
     <div id="emailToPdfDiv" style="background:#fff; padding:24px; font-family:Arial, sans-serif; width:100%; max-width:794px; min-height:400px; margin:0 auto; box-sizing:border-box; display:none;"></div>
     <script>
       // You can update this version string in JS for easy control
-      window.addinVersion = 'v1.5.1';
+      window.addinVersion = 'v1.5.2';
       document.querySelectorAll('#version').forEach(el => el.textContent = window.addinVersion);
     </script>
     <script src="taskpane.js"></script>
