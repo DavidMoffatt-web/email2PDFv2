@@ -84,11 +84,22 @@ async function createPdf(htmlBody, attachments, imgSources) {
     emailContainer.style.minHeight = '400px';
     emailContainer.style.height = 'auto';
     emailContainer.style.overflow = 'visible';
-    emailContainer.style.position = 'absolute';
-    emailContainer.style.left = '-9999px';
+    emailContainer.style.position = 'fixed';
+    emailContainer.style.left = '0';
     emailContainer.style.top = '0';
     emailContainer.style.zIndex = '9999';
+    emailContainer.style.visibility = 'hidden'; // Hide visually but keep in layout for html2canvas
+    emailContainer.style.border = '2px solid red'; // Debug border
     document.body.appendChild(emailContainer);
+    // Log computed style and bounding rect for diagnostics
+    setTimeout(() => {
+        const rect = emailContainer.getBoundingClientRect();
+        const style = window.getComputedStyle(emailContainer);
+        console.log('EMAIL container bounding rect:', rect);
+        console.log('EMAIL container computed style:', style);
+        console.log('EMAIL container offsetHeight:', emailContainer.offsetHeight);
+        console.log('EMAIL container innerHTML:', emailContainer.innerHTML);
+    }, 100);
     // Wait for images to load before generating PDF
     const emailImages = Array.from(emailContainer.querySelectorAll('img'));
     let loaded = 0;
