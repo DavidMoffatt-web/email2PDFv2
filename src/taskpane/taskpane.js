@@ -153,6 +153,7 @@ async function createPdf(htmlBody, attachments, imgSources) {
 
     // Step 3: Convert/merge attachments
     let pdfBuffers = [];
+    let skippedFiles = [];
     // 1. Email body as first PDF buffer
     async function processEmailAndAttachments() {
         // Email PDF
@@ -191,6 +192,7 @@ async function createPdf(htmlBody, attachments, imgSources) {
                     pdfBuffers.push(imgPdfBuffer);
                 } catch (err) {
                     console.error('Failed to convert image attachment to PDF:', att.name, err);
+                    skippedFiles.push(att.name + ' (image conversion failed)');
                 }
                 document.body.removeChild(imgDiv);
             }
@@ -216,6 +218,7 @@ async function createPdf(htmlBody, attachments, imgSources) {
                     document.body.removeChild(docxDiv);
                 } catch (err) {
                     console.error('Failed to convert DOCX attachment to PDF:', att.name, err);
+                    skippedFiles.push(att.name + ' (DOCX conversion failed)');
                 }
             }
             // PDF
@@ -225,25 +228,48 @@ async function createPdf(htmlBody, attachments, imgSources) {
                     pdfBuffers.push(pdfArrayBuffer);
                 } catch (err) {
                     console.error('Failed to add PDF attachment:', att.name, err);
+                    skippedFiles.push(att.name + ' (PDF could not be loaded)');
                 }
             }
             // Other types: skip for now, could add more logic here
             else {
                 console.warn('Skipping unsupported attachment type:', att.name, att.type);
+                skippedFiles.push(att.name + ' (unsupported type: ' + att.type + ")");
             }
         }
 
         // Step 4: Merge all PDF buffers using pdf-lib
+        let failedMerges = [];
         try {
             const mergedPdf = await PDFDocument.create();
-            for (let buf of pdfBuffers) {
+            for (let i = 0; i < pdfBuffers.length; i++) {
+                let buf = pdfBuffers[i];
                 try {
                     const srcPdf = await PDFDocument.load(buf, { ignoreEncryption: true });
                     const pages = await mergedPdf.copyPages(srcPdf, srcPdf.getPageIndices());
                     pages.forEach(page => mergedPdf.addPage(page));
                 } catch (err) {
                     console.error('Failed to load/merge a PDF (possibly encrypted or corrupt):', err);
+                    // If this is an attachment, add to skippedFiles
+                    if (i > 0) skippedFiles.push((attachmentBlobs[i-1]?.name || 'Attachment') + ' (PDF merge failed)');
+                    failedMerges.push(i);
                 }
+            }
+            // Optionally, add a summary page if any files were skipped
+            if (skippedFiles.length > 0) {
+                const summaryPage = await mergedPdf.addPage();
+                const { width, height } = summaryPage.getSize();
+                const font = await mergedPdf.embedFont(PDFDocument.PDFFont ? PDFDocument.PDFFont.Helvetica : (await mergedPdf.embedFont('Helvetica')));
+                const text = 'The following attachments could not be merged into the PDF:\n' + skippedFiles.map(f => '- ' + f).join('\n');
+                summaryPage.drawText(text, {
+                    x: 50,
+                    y: height - 50,
+                    size: 12,
+                    font: font,
+                    color: { r: 0, g: 0, b: 0 },
+                    maxWidth: width - 100,
+                    lineHeight: 16
+                });
             }
             const mergedBytes = await mergedPdf.save();
             // Download merged PDF
@@ -254,8 +280,15 @@ async function createPdf(htmlBody, attachments, imgSources) {
             a.download = 'email_and_attachments.pdf';
             a.click();
             console.log('Merged PDF download triggered.');
+            // Show warning in UI if any files were skipped
+            if (skippedFiles.length > 0) {
+                alert('Some attachments could not be merged into the PDF:\n' + skippedFiles.join('\n'));
+            }
         } catch (err) {
             console.error('Failed to merge PDFs:', err);
+            if (skippedFiles.length > 0) {
+                alert('Some attachments could not be merged into the PDF:\n' + skippedFiles.join('\n'));
+            }
         }
     }
 
