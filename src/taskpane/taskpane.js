@@ -194,16 +194,22 @@ async function createPdf(htmlBody, attachments, imgSources) {
                             docxContainer.style.minHeight = '400px';
                             docxContainer.style.height = 'auto';
                             docxContainer.style.overflow = 'visible';
-                            docxContainer.style.position = 'fixed';
-                            docxContainer.style.left = '-9999px'; // Hide but keep rendered
-                            docxContainer.style.top = '0';
+                            docxContainer.style.position = 'absolute';
+                            docxContainer.style.left = '0';
+                            docxContainer.style.top = '-9999px'; // Move off-screen but keep rendered
                             docxContainer.style.zIndex = '9999';
                             document.body.appendChild(docxContainer);
+                            // Log diagnostics
+                            setTimeout(() => {
+                                console.log('DOCX container offsetHeight:', docxContainer.offsetHeight);
+                                console.log('DOCX container innerHTML:', docxContainer.innerHTML);
+                            }, 100);
                             const images = Array.from(docxContainer.querySelectorAll('img'));
                             let loaded = 0;
                             function addDocxToPdf() {
-                                // Add a short delay to ensure rendering
+                                // Add a longer delay to ensure rendering
                                 setTimeout(() => {
+                                    console.log('Rendering DOCX to PDF. Container height:', docxContainer.offsetHeight);
                                     html2pdf().set({
                                         margin: 10,
                                         filename: 'email.pdf',
@@ -222,7 +228,7 @@ async function createPdf(htmlBody, attachments, imgSources) {
                                             resolve();
                                         });
                                     });
-                                }, 250);
+                                }, 500);
                             }
                             if (images.length > 0) {
                                 images.forEach(img => {
