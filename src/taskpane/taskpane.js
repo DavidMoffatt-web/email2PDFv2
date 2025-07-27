@@ -249,7 +249,7 @@ async function createPdf(htmlBody, attachments, imgSources) {
                     if (!window.mammoth && typeof mammoth === 'undefined') {
                         console.log('Mammoth not found, loading dynamically...');
                         const mammothScript = document.createElement('script');
-                        mammothScript.src = 'images/mammoth.browser.min.js';
+                        mammothScript.src = '../../images/mammoth.browser.min.js';
                         mammothScript.onload = () => {
                             console.log('Mammoth loaded dynamically:', window.mammoth, typeof mammoth);
                         };
