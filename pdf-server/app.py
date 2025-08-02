@@ -14,6 +14,7 @@ import logging
 import zipfile
 import time
 import re
+import hashlib
 from urllib.parse import urlparse
 
 # Set up logging
@@ -693,38 +694,47 @@ def convert_with_attachments():
             logger.info("Image extraction requested - scanning HTML for embedded images...")
             extracted_images = extract_images_from_html(html_content)
             
-            # Also look for CID references that match attachments
+            # Keep track of which images we've already processed as attachments to avoid duplicates
+            processed_attachment_hashes = set()
+            for attachment in attachments:
+                if attachment.get('contentType', '').startswith('image/') or \
+                   attachment.get('name', '').lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp')):
+                    try:
+                        # Create a hash of the attachment content to detect duplicates
+                        import hashlib
+                        file_content = base64.b64decode(attachment['content'])
+                        content_hash = hashlib.md5(file_content).hexdigest()
+                        processed_attachment_hashes.add(content_hash)
+                        logger.info(f"Added attachment {attachment['name']} to processed list (hash: {content_hash[:8]}...)")
+                    except:
+                        pass
+            
+            # Also look for CID references that match attachments (but don't process them separately)
             cid_pattern = r'cid:([^"\'>\s]+)'
             cid_matches = re.findall(cid_pattern, html_content, re.IGNORECASE)
             
-            for cid in cid_matches:
-                logger.info(f"Found CID reference: {cid}")
-                # Look for matching attachment by CID or similar filename patterns
-                for attachment in attachments:
-                    attachment_name = attachment.get('name', '')
-                    # Check if the attachment name contains the CID or is an image
-                    if (cid in attachment_name or 
-                        attachment_name.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'))):
-                        try:
-                            logger.info(f"Found matching CID attachment: {attachment_name}")
-                            file_content = base64.b64decode(attachment['content'])
-                            content_type = attachment.get('contentType', 'image/jpeg')
-                            
-                            # Add this as an extracted image for individual PDF creation
-                            extracted_images.append({
-                                'filename': attachment_name,
-                                'data': file_content,
-                                'mime_type': content_type,
-                                'size': len(file_content),
-                                'is_cid': True,
-                                'cid': cid
-                            })
-                            logger.info(f"Added CID image {attachment_name} for individual PDF conversion")
-                            break
-                        except Exception as e:
-                            logger.warning(f"Error processing CID attachment {attachment_name}: {str(e)}")
-            
+            # Filter out extracted images that are duplicates of attachments
+            filtered_images = []
             for image_info in extracted_images:
+                try:
+                    import hashlib
+                    image_hash = hashlib.md5(image_info['data']).hexdigest()
+                    
+                    if image_hash in processed_attachment_hashes:
+                        logger.info(f"Skipping duplicate image {image_info['filename']} - already processed as attachment (hash: {image_hash[:8]}...)")
+                        continue
+                    else:
+                        logger.info(f"Image {image_info['filename']} is unique, will process (hash: {image_hash[:8]}...)")
+                        filtered_images.append(image_info)
+                        
+                except Exception as e:
+                    logger.warning(f"Error checking image hash for {image_info['filename']}: {str(e)}")
+                    # If we can't hash it, include it to be safe
+                    filtered_images.append(image_info)
+            
+            logger.info(f"After deduplication: processing {len(filtered_images)} unique images out of {len(extracted_images)} extracted")
+            
+            for image_info in filtered_images:
                 try:
                     logger.info(f"Converting extracted image {image_info['filename']} to PDF...")
                     image_pdf_content = convert_image_to_pdf_with_gotenberg(
@@ -765,7 +775,7 @@ def convert_with_attachments():
                         'reason': f'Processing error: {str(e)}'
                     })
             
-            logger.info(f"Image extraction complete. Converted {len([p for p in image_pdfs if p['converted']])} out of {len(extracted_images)} images to PDF")
+            logger.info(f"Image extraction complete. Converted {len([p for p in image_pdfs if p['converted']])} out of {len(filtered_images)} unique images to PDF")
         
         logger.info(f"Attachment processing complete. Total PDFs ready: {len(pdfs_to_merge)} (1 email + {len(pdfs_to_merge)-1} converted files)")
         
