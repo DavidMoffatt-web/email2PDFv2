@@ -16,9 +16,9 @@ services:
       - "--libreoffice-auto-start=true"
       - "--chromium-allow-list=file:///,http://localhost"
       - "--chromium-ignore-certificate-errors=true"
-      - "--chromium-cache-mode=memory"          # Use memory cache for better performance
-      - "--chromium-queue-size=10"              # Increased queue size for parallel processing
-      - "--pdf-engines-metrics=false"           # Disable metrics for performance
+      - "--chromium-clear-cache=false"          # Don't clear cache between conversions for better performance
+      - "--chromium-max-queue-size=10"          # Increased queue size for parallel processing
+      - "--prometheus-disable-collect=true"     # Disable metrics for performance
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
