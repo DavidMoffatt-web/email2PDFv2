@@ -1,0 +1,10 @@
+Flask==3.1.1
+Flask-CORS==6.0.1
+python-docx==1.2.0
+openpyxl==3.1.5
+PyPDF2==3.0.1
+Markdown==3.8.2
+Pillow==11.3.0
+reportlab==4.2.5
+pdfkit==1.0.0
+requests==2.32.4
