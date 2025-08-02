@@ -761,6 +761,48 @@ async function createHtmlToPdfmakePdf(metaHtml, htmlBody, attachments) {
             throw new Error('html-to-pdfmake or pdfMake libraries not loaded');
         }
         
+        // Configure pdfMake fonts to handle system fonts and provide fallbacks
+        pdfMake.fonts = {
+            // Default Roboto font (always available)
+            Roboto: {
+                normal: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Regular.ttf',
+                bold: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Medium.ttf',
+                italics: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Italic.ttf',
+                bolditalics: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-MediumItalic.ttf'
+            },
+            // Map common system fonts to Roboto
+            Aptos: {
+                normal: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Regular.ttf',
+                bold: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Medium.ttf',
+                italics: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Italic.ttf',
+                bolditalics: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-MediumItalic.ttf'
+            },
+            Calibri: {
+                normal: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Regular.ttf',
+                bold: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Medium.ttf',
+                italics: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Italic.ttf',
+                bolditalics: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-MediumItalic.ttf'
+            },
+            Arial: {
+                normal: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Regular.ttf',
+                bold: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Medium.ttf',
+                italics: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Italic.ttf',
+                bolditalics: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-MediumItalic.ttf'
+            },
+            'Times New Roman': {
+                normal: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Regular.ttf',
+                bold: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Medium.ttf',
+                italics: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Italic.ttf',
+                bolditalics: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-MediumItalic.ttf'
+            },
+            Helvetica: {
+                normal: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Regular.ttf',
+                bold: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Medium.ttf',
+                italics: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Italic.ttf',
+                bolditalics: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-MediumItalic.ttf'
+            }
+        };
+        
         // Create the email metadata section
         const metaDoc = new DOMParser().parseFromString(metaHtml, 'text/html');
         const metaText = metaDoc.body.textContent || metaDoc.body.innerText || '';
@@ -779,42 +821,63 @@ async function createHtmlToPdfmakePdf(metaHtml, htmlBody, attachments) {
         }
         
         // Create header HTML for email details
-        let headerHtml = '<div style="margin-bottom: 20px; padding: 15px; background-color: #f5f5f5; border: 1px solid #ddd;">';
-        headerHtml += '<h2 style="margin: 0 0 10px 0; color: #333; font-size: 16px;">Email Details</h2>';
+        let headerHtml = '<div style="margin-bottom: 20px; padding: 15px; background-color: #f5f5f5; border: 1px solid #ddd; font-family: Roboto, sans-serif;">';
+        headerHtml += '<h2 style="margin: 0 0 10px 0; color: #333; font-size: 16px; font-family: Roboto, sans-serif;">Email Details</h2>';
         emailDetails.forEach(detail => {
-            headerHtml += `<p style="margin: 3px 0; font-size: 11px;">${detail}</p>`;
+            headerHtml += `<p style="margin: 3px 0; font-size: 11px; font-family: Roboto, sans-serif;">${detail}</p>`;
         });
         headerHtml += '</div>';
         
         // Add content header
-        const contentHtml = '<h2 style="margin: 20px 0 10px 0; color: #333; font-size: 16px; border-bottom: 2px solid #005a9f; padding-bottom: 5px;">Message Content</h2>';
+        const contentHtml = '<h2 style="margin: 20px 0 10px 0; color: #333; font-size: 16px; border-bottom: 2px solid #005a9f; padding-bottom: 5px; font-family: Roboto, sans-serif;">Message Content</h2>';
         
-        // Combine all HTML
-        const fullHtml = headerHtml + contentHtml + htmlBody;
+        // Combine all HTML and ensure font-family is specified
+        let fullHtml = headerHtml + contentHtml + htmlBody;
         
-        // Configure html-to-pdfmake options
+        // Pre-process HTML to replace all font-family references with Roboto
+        // This ensures no unknown fonts reach pdfMake
+        fullHtml = fullHtml.replace(/font-family\s*:\s*[^;}"]+/gi, 'font-family: Roboto, sans-serif');
+        // Also handle inline style attributes
+        fullHtml = fullHtml.replace(/style\s*=\s*"([^"]*?)"/gi, (match, styleContent) => {
+            const updatedStyle = styleContent.replace(/font-family\s*:\s*[^;]+/gi, 'font-family: Roboto, sans-serif');
+            return `style="${updatedStyle}"`;
+        });
+        // Handle any remaining font references in CSS
+        fullHtml = fullHtml.replace(/(Aptos|Calibri|Arial|Times New Roman|Helvetica|serif|sans-serif|monospace)/gi, 'Roboto');
+        
+        // Configure html-to-pdfmake options with font mapping
         const options = {
             tableAutoSize: true,
             removeExtraBlanks: true,
+            fontMapping: {
+                'Aptos': 'Roboto',
+                'Calibri': 'Roboto', 
+                'Arial': 'Roboto',
+                'Times New Roman': 'Roboto',
+                'Helvetica': 'Roboto',
+                'sans-serif': 'Roboto',
+                'serif': 'Roboto',
+                'monospace': 'Roboto'
+            },
             defaultStyles: {
-                h1: { fontSize: 18, bold: true, marginBottom: 8, color: '#005a9f' },
-                h2: { fontSize: 16, bold: true, marginBottom: 6, color: '#005a9f' },
-                h3: { fontSize: 14, bold: true, marginBottom: 5, color: '#005a9f' },
-                h4: { fontSize: 12, bold: true, marginBottom: 4, color: '#333' },
-                h5: { fontSize: 11, bold: true, marginBottom: 3, color: '#333' },
-                h6: { fontSize: 10, bold: true, marginBottom: 3, color: '#333' },
-                p: { margin: [0, 3, 0, 6] },
-                a: { color: '#0066cc', decoration: 'underline' },
-                strong: { bold: true },
-                b: { bold: true },
-                em: { italics: true },
-                i: { italics: true },
-                ul: { marginBottom: 5, marginLeft: 10 },
-                ol: { marginBottom: 5, marginLeft: 10 },
-                li: { marginBottom: 2 },
-                table: { marginBottom: 10 },
-                th: { bold: true, fillColor: '#e6f1ff', alignment: 'left' },
-                td: { margin: [3, 3, 3, 3] }
+                h1: { fontSize: 18, bold: true, marginBottom: 8, color: '#005a9f', font: 'Roboto' },
+                h2: { fontSize: 16, bold: true, marginBottom: 6, color: '#005a9f', font: 'Roboto' },
+                h3: { fontSize: 14, bold: true, marginBottom: 5, color: '#005a9f', font: 'Roboto' },
+                h4: { fontSize: 12, bold: true, marginBottom: 4, color: '#333', font: 'Roboto' },
+                h5: { fontSize: 11, bold: true, marginBottom: 3, color: '#333', font: 'Roboto' },
+                h6: { fontSize: 10, bold: true, marginBottom: 3, color: '#333', font: 'Roboto' },
+                p: { margin: [0, 3, 0, 6], font: 'Roboto' },
+                a: { color: '#0066cc', decoration: 'underline', font: 'Roboto' },
+                strong: { bold: true, font: 'Roboto' },
+                b: { bold: true, font: 'Roboto' },
+                em: { italics: true, font: 'Roboto' },
+                i: { italics: true, font: 'Roboto' },
+                ul: { marginBottom: 5, marginLeft: 10, font: 'Roboto' },
+                ol: { marginBottom: 5, marginLeft: 10, font: 'Roboto' },
+                li: { marginBottom: 2, font: 'Roboto' },
+                table: { marginBottom: 10, font: 'Roboto' },
+                th: { bold: true, fillColor: '#e6f1ff', alignment: 'left', font: 'Roboto' },
+                td: { margin: [3, 3, 3, 3], font: 'Roboto' }
             }
         };
         
@@ -832,7 +895,8 @@ async function createHtmlToPdfmakePdf(metaHtml, htmlBody, attachments) {
                 header: {
                     fontSize: 14,
                     bold: true,
-                    margin: [0, 0, 0, 10]
+                    margin: [0, 0, 0, 10],
+                    font: 'Roboto'
                 }
             },
             pageMargins: [40, 60, 40, 60],
@@ -842,7 +906,8 @@ async function createHtmlToPdfmakePdf(metaHtml, htmlBody, attachments) {
                     alignment: 'center',
                     fontSize: 8,
                     color: '#666666',
-                    margin: [0, 10, 0, 0]
+                    margin: [0, 10, 0, 0],
+                    font: 'Roboto'
                 };
             }
         };
