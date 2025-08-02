@@ -986,16 +986,16 @@ async function createHtmlToPdfmakePdf(metaHtml, htmlBody, attachments) {
             }
         }
         
-        // Create header HTML for email details
-        let headerHtml = '<div style="margin-bottom: 20px; padding: 15px; background-color: #f5f5f5; border: 1px solid #ddd; font-family: Roboto, sans-serif;">';
-        headerHtml += '<h2 style="margin: 0 0 10px 0; color: #333; font-size: 16px; font-family: Roboto, sans-serif;">Email Details</h2>';
+        // Create header HTML for email details with cleaner styling
+        let headerHtml = '<div style="margin-bottom: 20px; padding: 12px; background-color: #f8f9fa; border-left: 4px solid #007acc; font-family: Roboto, sans-serif;">';
+        headerHtml += '<h2 style="margin: 0 0 8px 0; color: #007acc; font-size: 14px; font-weight: bold; font-family: Roboto, sans-serif;">Email Details</h2>';
         emailDetails.forEach(detail => {
-            headerHtml += `<p style="margin: 3px 0; font-size: 11px; font-family: Roboto, sans-serif;">${detail}</p>`;
+            headerHtml += `<p style="margin: 2px 0; font-size: 10px; font-family: Roboto, sans-serif; color: #333;">${detail}</p>`;
         });
         headerHtml += '</div>';
         
-        // Add content header
-        const contentHtml = '<h2 style="margin: 20px 0 10px 0; color: #333; font-size: 16px; border-bottom: 2px solid #005a9f; padding-bottom: 5px; font-family: Roboto, sans-serif;">Message Content</h2>';
+        // Add content header with cleaner styling
+        const contentHtml = '<div style="margin: 15px 0 10px 0; padding-bottom: 5px; border-bottom: 1px solid #ddd;"><h2 style="margin: 0; color: #007acc; font-size: 14px; font-weight: bold; font-family: Roboto, sans-serif;">Message Content</h2></div>';
         
         // Combine all HTML and ensure font-family is specified
         let fullHtml = headerHtml + contentHtml + htmlBody;
@@ -1014,6 +1014,30 @@ async function createHtmlToPdfmakePdf(metaHtml, htmlBody, attachments) {
         
         // Remove any remaining CSS rules that might be floating around
         fullHtml = fullHtml.replace(/\{[^{}]*(?:color|font|margin|padding|background)[^{}]*\}/gi, '');
+        
+        // Clean up excessive borders and styling that create nested appearance
+        fullHtml = fullHtml.replace(/border:\s*[^;]*;?/gi, '');
+        fullHtml = fullHtml.replace(/border-[^:]*:\s*[^;]*;?/gi, '');
+        
+        // Improve image formatting - constrain sizes and remove problematic styling
+        fullHtml = fullHtml.replace(/<img([^>]*?)style\s*=\s*["']([^"']*)["']([^>]*?)>/gi, (match, before, style, after) => {
+            // Remove existing width/height from style and add proper constraints
+            let cleanStyle = style
+                .replace(/width\s*:\s*[^;]*;?/gi, '')
+                .replace(/height\s*:\s*[^;]*;?/gi, '')
+                .replace(/max-width\s*:\s*[^;]*;?/gi, '')
+                .replace(/max-height\s*:\s*[^;]*;?/gi, '')
+                .replace(/border[^:]*:\s*[^;]*;?/gi, '');
+            
+            // Add proper image constraints
+            cleanStyle += '; max-width: 400px; max-height: 300px; width: auto; height: auto; display: block; margin: 10px auto;';
+            
+            return `<img${before}style="${cleanStyle}"${after}>`;
+        });
+        
+        // Handle images without style attributes
+        fullHtml = fullHtml.replace(/<img(?![^>]*style\s*=)([^>]*?)>/gi, 
+            '<img$1 style="max-width: 400px; max-height: 300px; width: auto; height: auto; display: block; margin: 10px auto;">');
         
         console.log('HTML cleaning completed');
         
@@ -1096,24 +1120,28 @@ async function createHtmlToPdfmakePdf(metaHtml, htmlBody, attachments) {
                 'monospace': 'Roboto'
             },
             defaultStyles: {
-                h1: { fontSize: 18, bold: true, marginBottom: 8, color: '#005a9f', font: 'Roboto' },
-                h2: { fontSize: 16, bold: true, marginBottom: 6, color: '#005a9f', font: 'Roboto' },
-                h3: { fontSize: 14, bold: true, marginBottom: 5, color: '#005a9f', font: 'Roboto' },
-                h4: { fontSize: 12, bold: true, marginBottom: 4, color: '#333', font: 'Roboto' },
-                h5: { fontSize: 11, bold: true, marginBottom: 3, color: '#333', font: 'Roboto' },
-                h6: { fontSize: 10, bold: true, marginBottom: 3, color: '#333', font: 'Roboto' },
-                p: { margin: [0, 3, 0, 6], font: 'Roboto' },
-                a: { color: '#0066cc', decoration: 'underline', font: 'Roboto' },
+                h1: { fontSize: 16, bold: true, marginBottom: 6, marginTop: 10, color: '#007acc', font: 'Roboto' },
+                h2: { fontSize: 14, bold: true, marginBottom: 5, marginTop: 8, color: '#007acc', font: 'Roboto' },
+                h3: { fontSize: 12, bold: true, marginBottom: 4, marginTop: 6, color: '#333', font: 'Roboto' },
+                h4: { fontSize: 11, bold: true, marginBottom: 3, marginTop: 5, color: '#333', font: 'Roboto' },
+                h5: { fontSize: 10, bold: true, marginBottom: 3, marginTop: 4, color: '#333', font: 'Roboto' },
+                h6: { fontSize: 10, bold: true, marginBottom: 2, marginTop: 3, color: '#333', font: 'Roboto' },
+                p: { margin: [0, 2, 0, 4], fontSize: 10, lineHeight: 1.3, font: 'Roboto' },
+                div: { margin: [0, 1, 0, 2], fontSize: 10, font: 'Roboto' },
+                span: { fontSize: 10, font: 'Roboto' },
+                a: { color: '#0066cc', decoration: 'underline', fontSize: 10, font: 'Roboto' },
                 strong: { bold: true, font: 'Roboto' },
                 b: { bold: true, font: 'Roboto' },
                 em: { italics: true, font: 'Roboto' },
                 i: { italics: true, font: 'Roboto' },
-                ul: { marginBottom: 5, marginLeft: 10, font: 'Roboto' },
-                ol: { marginBottom: 5, marginLeft: 10, font: 'Roboto' },
-                li: { marginBottom: 2, font: 'Roboto' },
-                table: { marginBottom: 10, font: 'Roboto' },
-                th: { bold: true, fillColor: '#e6f1ff', alignment: 'left', font: 'Roboto' },
-                td: { margin: [3, 3, 3, 3], font: 'Roboto' }
+                ul: { marginBottom: 4, marginLeft: 8, marginTop: 3, font: 'Roboto' },
+                ol: { marginBottom: 4, marginLeft: 8, marginTop: 3, font: 'Roboto' },
+                li: { marginBottom: 1, fontSize: 10, font: 'Roboto' },
+                table: { marginBottom: 8, marginTop: 5, font: 'Roboto' },
+                th: { bold: true, fillColor: '#f0f8ff', alignment: 'left', fontSize: 10, padding: [3, 3, 3, 3], font: 'Roboto' },
+                td: { margin: [3, 2, 3, 2], fontSize: 10, font: 'Roboto' },
+                img: { margin: [0, 5, 0, 5], alignment: 'center' },
+                blockquote: { margin: [10, 5, 0, 5], italics: true, color: '#666', fontSize: 9, font: 'Roboto' }
             }
         };
         
@@ -1124,27 +1152,45 @@ async function createHtmlToPdfmakePdf(metaHtml, htmlBody, attachments) {
         const docDefinition = {
             content: pdfmakeContent,
             defaultStyle: {
-                fontSize: 11,
-                font: 'Roboto'
+                fontSize: 10,
+                lineHeight: 1.2,
+                font: 'Roboto',
+                color: '#333'
             },
             styles: {
                 header: {
-                    fontSize: 14,
+                    fontSize: 12,
                     bold: true,
-                    margin: [0, 0, 0, 10],
-                    font: 'Roboto'
+                    margin: [0, 0, 0, 8],
+                    font: 'Roboto',
+                    color: '#007acc'
+                },
+                subheader: {
+                    fontSize: 11,
+                    bold: true,
+                    margin: [0, 5, 0, 5],
+                    font: 'Roboto',
+                    color: '#333'
                 }
             },
-            pageMargins: [40, 60, 40, 60],
+            pageSize: 'A4',
+            pageOrientation: 'portrait',
+            pageMargins: [40, 50, 40, 60],
             footer: function(currentPage, pageCount) {
                 return {
                     text: `Generated by Email2PDF • ${new Date().toLocaleDateString()} • Page ${currentPage} of ${pageCount}`,
                     alignment: 'center',
                     fontSize: 8,
-                    color: '#666666',
+                    color: '#888',
                     margin: [0, 10, 0, 0],
                     font: 'Roboto'
                 };
+            },
+            info: {
+                title: (Office.context.mailbox.item.subject || 'Email') + ' - PDF',
+                author: 'Email2PDF',
+                subject: Office.context.mailbox.item.subject || 'Email Export',
+                creator: 'Email2PDF v1.6.0'
             }
         };
         
@@ -1416,57 +1462,62 @@ function initializeApp() {
                     </div>`;
                     
                     const testHtmlBody = `
-                        <div style="font-family: Aptos, sans-serif; font-size: 14px; line-height: 1.6;">
-                            <h1 style="font-family: Aptos, sans-serif; color: #005a9f;">Test Email with Different Fonts and Images</h1>
-                            <p style="font-family: Aptos, sans-serif;">This paragraph uses <strong>Aptos font</strong> which should be mapped to Roboto.</p>
+                        <div style="font-family: Roboto, sans-serif; font-size: 12px; line-height: 1.4; color: #333;">
+                            <h1 style="font-family: Roboto, sans-serif; color: #007acc;">Test Email with Images and Formatting</h1>
+                            <p style="font-family: Roboto, sans-serif;">This paragraph demonstrates <strong>bold text</strong> and <em>italic text</em> formatting.</p>
                             
-                            <h2 style="font-family: Calibri, sans-serif; color: #005a9f;">Images Test Section</h2>
-                            <p style="font-family: Calibri, sans-serif;">The images below should be converted to base64 data URLs in html-to-pdfmake engine:</p>
+                            <h2 style="font-family: Roboto, sans-serif; color: #007acc;">Image Gallery</h2>
+                            <p style="font-family: Roboto, sans-serif;">The images below should display properly sized and centered:</p>
                             
-                            <div style="text-align: center; margin: 20px 0;">
-                                <img src="https://via.placeholder.com/150x100/0066cc/ffffff?text=Image+1" alt="Test Image 1" style="margin: 10px; border: 1px solid #ccc;">
-                                <img src="https://via.placeholder.com/150x100/cc6600/ffffff?text=Image+2" alt="Test Image 2" style="margin: 10px; border: 1px solid #ccc;">
+                            <div style="text-align: center; margin: 15px 0;">
+                                <img src="https://via.placeholder.com/200x150/0066cc/ffffff?text=Sample+Image+1" 
+                                     alt="Test Image 1" 
+                                     style="max-width: 200px; max-height: 150px; margin: 10px; border-radius: 4px;">
                             </div>
                             
-                            <h2 style="font-family: Calibri, sans-serif; color: #005a9f;">Calibri Heading</h2>
-                            <p style="font-family: Calibri, sans-serif;">This text is in <em>Calibri font</em> which should also map to Roboto.</p>
+                            <div style="text-align: center; margin: 15px 0;">
+                                <img src="https://via.placeholder.com/250x100/cc6600/ffffff?text=Wide+Image+2" 
+                                     alt="Test Image 2" 
+                                     style="max-width: 250px; max-height: 100px; margin: 10px; border-radius: 4px;">
+                            </div>
                             
-                            <h3 style="font-family: Arial, sans-serif;">Arial Section</h3>
-                            <ul style="font-family: Arial, sans-serif;">
-                                <li>List item with Arial font</li>
-                                <li>Another list item with <strong>bold Arial text</strong></li>
-                                <li>Third item with <a href="#" style="color: #0066cc;">a link in Arial</a></li>
+                            <h2 style="font-family: Roboto, sans-serif; color: #007acc;">Content Formatting Test</h2>
+                            
+                            <h3 style="font-family: Roboto, sans-serif;">Lists and Structure</h3>
+                            <ul style="font-family: Roboto, sans-serif; margin-left: 20px;">
+                                <li>First list item with proper spacing</li>
+                                <li>Second item with <strong>bold text</strong></li>
+                                <li>Third item with <a href="#" style="color: #0066cc;">a sample link</a></li>
                             </ul>
                             
-                            <div style="text-align: center; margin: 20px 0;">
-                                <img src="https://via.placeholder.com/200x80/00cc66/ffffff?text=Image+3+Wider" alt="Test Image 3" style="margin: 10px; border: 1px solid #ccc;">
-                            </div>
-                            
-                            <h3 style="font-family: Times New Roman, serif;">Times New Roman Section</h3>
-                            <p style="font-family: Times New Roman, serif;">This paragraph uses Times New Roman, which should also be mapped to Roboto for consistency.</p>
-                            
-                            <h3 style="font-family: Helvetica, sans-serif;">Helvetica Section</h3>
-                            <blockquote style="font-family: Helvetica, sans-serif; border-left: 4px solid #005a9f; padding-left: 15px; margin-left: 0; color: #666;">
-                                This is a blockquote in Helvetica font family, demonstrating how font mapping handles different CSS font specifications.
-                            </blockquote>
-                            
-                            <table style="border-collapse: collapse; width: 100%; margin: 20px 0; font-family: Calibri, sans-serif;">
-                                <tr style="background-color: #e6f1ff;">
-                                    <th style="border: 1px solid #ddd; padding: 8px; text-align: left; font-family: Calibri, sans-serif;">Column 1</th>
-                                    <th style="border: 1px solid #ddd; padding: 8px; text-align: left; font-family: Aptos, sans-serif;">Column 2</th>
+                            <h3 style="font-family: Roboto, sans-serif;">Table Example</h3>
+                            <table style="width: 100%; margin: 15px 0; border-collapse: collapse; font-family: Roboto, sans-serif;">
+                                <tr style="background-color: #f0f8ff;">
+                                    <th style="padding: 8px; text-align: left; border: 1px solid #ddd;">Feature</th>
+                                    <th style="padding: 8px; text-align: left; border: 1px solid #ddd;">Status</th>
                                 </tr>
                                 <tr>
-                                    <td style="border: 1px solid #ddd; padding: 8px; font-family: Arial, sans-serif;">Calibri cell</td>
-                                    <td style="border: 1px solid #ddd; padding: 8px; font-family: Times New Roman, serif;">Times cell</td>
+                                    <td style="padding: 8px; border: 1px solid #ddd;">Font Mapping</td>
+                                    <td style="padding: 8px; border: 1px solid #ddd;">✓ Working</td>
+                                </tr>
+                                <tr style="background-color: #f9f9f9;">
+                                    <td style="padding: 8px; border: 1px solid #ddd;">Image Display</td>
+                                    <td style="padding: 8px; border: 1px solid #ddd;">✓ Improved</td>
                                 </tr>
                             </table>
                             
-                            <p style="font-family: sans-serif; color: #666; font-size: 12px;">
-                                This test email contains various font families commonly used in Office emails:
-                                Aptos, Calibri, Arial, Times New Roman, and Helvetica. All should be mapped to Roboto in the PDF output.
-                                <br><br>
-                                <strong>Images:</strong> External images should be converted to base64 data URLs for html-to-pdfmake, 
-                                or removed for other engines to prevent CORS errors.
+                            <div style="text-align: center; margin: 20px 0;">
+                                <img src="https://via.placeholder.com/180x120/00cc66/ffffff?text=Final+Image" 
+                                     alt="Final Test Image" 
+                                     style="max-width: 180px; max-height: 120px; border-radius: 4px;">
+                            </div>
+                            
+                            <p style="font-family: Roboto, sans-serif; color: #666; font-size: 11px; margin-top: 20px;">
+                                This test demonstrates improved formatting with:
+                                <br>• Better image sizing and positioning
+                                <br>• Cleaner layout without excessive borders
+                                <br>• Proper font mapping and consistent styling
+                                <br>• Optimized spacing and visual hierarchy
                             </p>
                         </div>
                     `;
