@@ -845,10 +845,11 @@ async function createHtmlToPdfmakePdf(metaHtml, htmlBody, attachments) {
         // Handle any remaining font references in CSS
         fullHtml = fullHtml.replace(/(Aptos|Calibri|Arial|Times New Roman|Helvetica|serif|sans-serif|monospace)/gi, 'Roboto');
         
-        // Configure html-to-pdfmake options with font mapping
+        // Configure html-to-pdfmake options with font mapping and image handling
         const options = {
             tableAutoSize: true,
             removeExtraBlanks: true,
+            imagesByReference: true, // Enable automatic external image handling
             fontMapping: {
                 'Aptos': 'Roboto',
                 'Calibri': 'Roboto', 
@@ -882,11 +883,16 @@ async function createHtmlToPdfmakePdf(metaHtml, htmlBody, attachments) {
         };
         
         // Convert HTML to pdfmake format
-        const pdfmakeContent = htmlToPdfmake(fullHtml, options);
+        const result = htmlToPdfmake(fullHtml, options);
+        
+        // Extract content and images (imagesByReference returns an object with both)
+        const pdfmakeContent = result.content || result;
+        const images = result.images || {};
         
         // Create the document definition
         const docDefinition = {
             content: pdfmakeContent,
+            images: images, // Include extracted images for external URL support
             defaultStyle: {
                 fontSize: 11,
                 font: 'Roboto'
@@ -913,9 +919,30 @@ async function createHtmlToPdfmakePdf(metaHtml, htmlBody, attachments) {
         };
         
         // Generate and download the PDF
-        pdfMake.createPdf(docDefinition).download((Office.context.mailbox.item.subject || 'email') + '.pdf');
-        
-        console.log('PDF created successfully with html-to-pdfmake');
+        try {
+            pdfMake.createPdf(docDefinition).download((Office.context.mailbox.item.subject || 'email') + '.pdf');
+            console.log('PDF created successfully with html-to-pdfmake');
+        } catch (imageError) {
+            console.warn('PDF creation failed with images, attempting without images:', imageError);
+            
+            // Fallback: Remove images and try again
+            const fallbackDocDefinition = {
+                ...docDefinition,
+                images: undefined
+            };
+            
+            // Also remove image references from content
+            const contentWithoutImages = JSON.stringify(pdfmakeContent).replace(/,?"image":"img_ref_\d+"/g, '');
+            fallbackDocDefinition.content = JSON.parse(contentWithoutImages);
+            
+            try {
+                pdfMake.createPdf(fallbackDocDefinition).download((Office.context.mailbox.item.subject || 'email') + '.pdf');
+                console.log('PDF created successfully with html-to-pdfmake (without images)');
+            } catch (fallbackError) {
+                console.error('PDF creation failed even without images:', fallbackError);
+                throw fallbackError;
+            }
+        }
     } catch (err) {
         console.error('Error creating PDF with html-to-pdfmake:', err);
         throw err;
