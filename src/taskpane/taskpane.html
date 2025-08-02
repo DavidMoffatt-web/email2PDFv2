@@ -10,14 +10,8 @@
     <meta http-equiv="Expires" content="0" />
     <link rel="stylesheet" href="styles.css">
     <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script src="../../images/mammoth.browser.min.js"></script>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
-    
-    <!-- PDFMake and html-to-pdfmake libraries -->
-    <script src="https://cdn.jsdelivr.net/npm/pdfmake@latest/build/pdfmake.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/pdfmake@latest/build/vfs_fonts.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/html-to-pdfmake/browser.js"></script>
 </head>
 <body>
     <div id="app">
@@ -29,45 +23,26 @@
             <option value="images">Individual PDFs (attachments + each embedded image in email)</option>
         </select>
         <div style="margin-bottom:12px;">
-            <label for="pdfEngine"><b>PDF Engine:</b></label>
-            <select id="pdfEngine">
-                <option value="html2pdf">html2pdf (best visual match, not selectable text)</option>
-                <option value="pdf-lib">pdf-lib (selectable text, basic formatting)</option>
-                <option value="html-to-pdfmake">html-to-pdfmake (selectable text, preserves HTML formatting)</option>
-                <option value="server-pdf" selected>🚀 Server PDF (high-quality, selectable text, best performance)</option>
-            </select>
-            <div id="pdfEngine-warning" style="font-size:0.95em;color:#b00;margin-top:6px;max-width:420px;">
-                <b>Note:</b> <span id="pdfEngine-warning-text">Server PDF now matches email appearance closely - no table borders, proper spacing, and clean formatting that mirrors the original email layout.</span>
+            <label for="pdfEngine"><b>PDF Engine:</b> Server PDF (high-quality, selectable text, best performance)</label>
+            <input type="hidden" id="pdfEngine" value="server-pdf">
+            <div id="pdfEngine-warning" style="font-size:0.95em;color:#007acc;margin-top:6px;max-width:420px;">
+                <b>Note:</b> <span id="pdfEngine-warning-text">Server PDF produces high-quality, selectable text with clean formatting that mirrors the original email layout. Requires local server to be running.</span>
             </div>
         </div>
         <script>
-        // Update warning text dynamically if needed
+        // PDF Engine is now fixed to server-pdf - no dynamic updates needed
         document.addEventListener('DOMContentLoaded', function() {
-            var engineSel = document.getElementById('pdfEngine');
-            var warning = document.getElementById('pdfEngine-warning-text');
-            if (engineSel && warning) {
-                engineSel.addEventListener('change', function() {
-                    if (engineSel.value === 'html2pdf') {
-                        warning.textContent = 'html2pdf produces visually accurate PDFs, but text is not selectable.';
-                    } else if (engineSel.value === 'pdf-lib') {
-                        warning.textContent = 'pdf-lib produces selectable text with enhanced formatting including headings, lists, and proper spacing.';
-                    } else if (engineSel.value === 'html-to-pdfmake') {
-                        warning.textContent = 'html-to-pdfmake converts HTML directly to selectable PDF format, preserving tables, lists, and formatting.';
-                    } else if (engineSel.value === 'server-pdf') {
-                        warning.textContent = 'Server PDF now matches email appearance closely - no table borders, proper spacing, and clean formatting that mirrors the original email layout. Requires local server to be running.';
-                    }
-                });
-            }
+            console.log('Email2PDF initialized with Server PDF engine');
         });
         </script>
         <button id="convertBtn">Convert Email to PDF</button>
         <button id="testBtn" style="margin-left: 10px; background-color: #007acc; color: white; border: none; padding: 8px 16px; cursor: pointer;">Test PDF Engine</button>
-        <span id="version" style="font-size:0.9em;color:#888;">v4.0.1</span>
+        <span id="version" style="font-size:0.9em;color:#888;">v4.1.1</span>
     </div>
     <div id="emailToPdfDiv" style="background:#fff; padding:24px; font-family:Arial, sans-serif; width:100%; max-width:794px; min-height:400px; margin:0 auto; box-sizing:border-box; display:none;"></div>
     <script>
       // You can update this version string in JS for easy control
-      window.addinVersion = 'v4.0.1';
+      window.addinVersion = 'v4.1.1';
       document.querySelectorAll('#version').forEach(el => el.textContent = window.addinVersion);
     </script>
     <script src="taskpane.js?v=2.1.0"></script>
