@@ -1664,9 +1664,67 @@ async function createServerPdf(metaHtml, htmlBody, attachments) {
         
         const contentType = response.headers.get('content-type');
         
-        if (contentType && contentType.includes('application/zip')) {
-            // Individual mode returns a ZIP file
-            console.log('Received ZIP file from server (individual mode)');
+        if (contentType && contentType.includes('application/json')) {
+            // Individual mode returns JSON with download URLs
+            console.log('Received JSON response from server (individual mode)');
+            const jsonResponse = await response.json();
+            
+            if (jsonResponse.error) {
+                throw new Error(`Server error: ${jsonResponse.error}`);
+            }
+            
+            if (jsonResponse.mode === 'individual' && jsonResponse.pdfs) {
+                console.log(`Downloading ${jsonResponse.pdfs.length} individual PDFs...`);
+                
+                // Download each PDF individually
+                for (const pdfInfo of jsonResponse.pdfs) {
+                    try {
+                        console.log(`Downloading: ${pdfInfo.filename}`);
+                        
+                        const pdfResponse = await fetch(`${serverUrl}${pdfInfo.download_url}`, {
+                            method: 'GET',
+                            signal: AbortSignal.timeout(30000) // 30 second timeout per download
+                        });
+                        
+                        if (!pdfResponse.ok) {
+                            console.error(`Failed to download ${pdfInfo.filename}: ${pdfResponse.status}`);
+                            continue;
+                        }
+                        
+                        const pdfBlob = await pdfResponse.blob();
+                        
+                        if (pdfBlob.size === 0) {
+                            console.error(`Empty PDF received for ${pdfInfo.filename}`);
+                            continue;
+                        }
+                        
+                        // Create download link for this PDF
+                        const link = document.createElement('a');
+                        link.href = URL.createObjectURL(pdfBlob);
+                        link.download = pdfInfo.filename;
+                        link.click();
+                        
+                        // Clean up the blob URL after a delay
+                        setTimeout(() => {
+                            URL.revokeObjectURL(link.href);
+                        }, 1000);
+                        
+                        // Small delay between downloads to prevent browser blocking
+                        await new Promise(resolve => setTimeout(resolve, 200));
+                        
+                    } catch (error) {
+                        console.error(`Error downloading ${pdfInfo.filename}:`, error);
+                    }
+                }
+                
+                console.log('Individual PDF downloads completed');
+            } else {
+                throw new Error('Unexpected server response format');
+            }
+            
+        } else if (contentType && contentType.includes('application/zip')) {
+            // Legacy ZIP support (if still used)
+            console.log('Received ZIP file from server (legacy individual mode)');
             const zipBlob = await response.blob();
             
             if (zipBlob.size === 0) {

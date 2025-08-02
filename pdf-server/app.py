@@ -11,6 +11,8 @@ import base64
 import mimetypes
 from pathlib import Path
 import logging
+import zipfile
+import time
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -21,6 +23,28 @@ CORS(app)
 
 # Gotenberg service URL
 GOTENBERG_URL = os.environ.get('GOTENBERG_URL', 'http://gotenberg:3000')
+
+# Temporary storage for individual PDFs
+temp_pdfs = {}
+
+def cleanup_old_pdfs():
+    """Remove PDFs older than 1 hour to prevent memory leaks"""
+    current_time = time.time()
+    expired_ids = []
+    
+    for pdf_id, pdf_data in temp_pdfs.items():
+        # Handle both 'timestamp' and 'created_at' keys for backward compatibility
+        pdf_time = pdf_data.get('timestamp', pdf_data.get('created_at', 0))
+        if current_time - pdf_time > 3600:  # 1 hour
+            expired_ids.append(pdf_id)
+    
+    for pdf_id in expired_ids:
+        del temp_pdfs[pdf_id]
+        logger.info(f"Cleaned up expired PDF: {pdf_id}")
+
+def generate_pdf_id():
+    """Generate a unique PDF ID"""
+    return f"pdf_{int(time.time() * 1000)}_{len(temp_pdfs)}"
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -168,6 +192,7 @@ def convert_with_attachments():
         data = request.get_json()
         html_content = data.get('html', '')
         attachments = data.get('attachments', [])
+        mode = data.get('mode', 'full')  # 'full' or 'individual'
         
         if not html_content:
             return jsonify({'error': 'No HTML content provided'}), 400
@@ -228,31 +253,77 @@ def convert_with_attachments():
                     'reason': f'Processing error: {str(e)}'
                 })
         
-        # Merge all PDFs
-        if len(pdfs_to_merge) > 1:
-            logger.info(f"Merging {len(pdfs_to_merge)} PDFs...")
+        # Handle different modes
+        if mode == 'individual':
+            # Individual mode: prepare separate PDFs and return download info
+            logger.info(f"Preparing individual PDFs with {len(pdfs_to_merge)} files...")
             
-            # Try Gotenberg merge first
-            merged_pdf = merge_pdfs_with_gotenberg(pdfs_to_merge)
+            # Store PDFs temporarily with unique IDs for download
+            pdf_downloads = []
             
-            # Fallback to PyPDF2 if Gotenberg fails
-            if not merged_pdf:
-                logger.info("Gotenberg merge failed, trying PyPDF2 fallback...")
-                merged_pdf = fallback_merge_pdfs(pdfs_to_merge)
+            # Add email PDF
+            email_id = f"email_{int(time.time())}"
+            temp_pdfs[email_id] = {
+                'content': email_pdf_content,
+                'filename': 'email.pdf',
+                'created_at': time.time()
+            }
+            pdf_downloads.append({
+                'id': email_id,
+                'filename': 'email.pdf',
+                'size': len(email_pdf_content),
+                'download_url': f'/download-pdf/{email_id}'
+            })
             
-            if not merged_pdf:
-                logger.error("Both merge methods failed, returning email PDF only")
-                merged_pdf = email_pdf_content
+            # Add each converted attachment PDF
+            for i, pdf_file in enumerate(pdfs_to_merge[1:], 1):  # Skip the first one (email)
+                pdf_id = f"attachment_{i}_{int(time.time())}"
+                temp_pdfs[pdf_id] = {
+                    'content': pdf_file['content'],
+                    'filename': pdf_file['name'],
+                    'created_at': time.time()
+                }
+                pdf_downloads.append({
+                    'id': pdf_id,
+                    'filename': pdf_file['name'],
+                    'size': len(pdf_file['content']),
+                    'download_url': f'/download-pdf/{pdf_id}'
+                })
+            
+            # Return JSON with download information
+            return jsonify({
+                'mode': 'individual',
+                'pdfs': pdf_downloads,
+                'total_count': len(pdf_downloads),
+                'message': 'Individual PDFs prepared for download'
+            })
+            
         else:
-            merged_pdf = email_pdf_content
-        
-        # Return the merged PDF directly as a file
-        return send_file(
-            io.BytesIO(merged_pdf),
-            as_attachment=True,
-            download_name='email_with_attachments.pdf',
-            mimetype='application/pdf'
-        )
+            # Full mode: merge all PDFs into one
+            if len(pdfs_to_merge) > 1:
+                logger.info(f"Merging {len(pdfs_to_merge)} PDFs...")
+                
+                # Try Gotenberg merge first
+                merged_pdf = merge_pdfs_with_gotenberg(pdfs_to_merge)
+                
+                # Fallback to PyPDF2 if Gotenberg fails
+                if not merged_pdf:
+                    logger.info("Gotenberg merge failed, trying PyPDF2 fallback...")
+                    merged_pdf = fallback_merge_pdfs(pdfs_to_merge)
+                
+                if not merged_pdf:
+                    logger.error("Both merge methods failed, returning email PDF only")
+                    merged_pdf = email_pdf_content
+            else:
+                merged_pdf = email_pdf_content
+            
+            # Return the merged PDF directly as a file
+            return send_file(
+                io.BytesIO(merged_pdf),
+                as_attachment=True,
+                download_name='email_with_attachments.pdf',
+                mimetype='application/pdf'
+            )
         
     except Exception as e:
         logger.error(f"Error in convert_with_attachments: {str(e)}")
@@ -405,6 +476,26 @@ def test_gotenberg():
         return jsonify({
             'error': f'Gotenberg test failed: {str(e)}'
         }), 500
+
+@app.route('/download-pdf/<pdf_id>', methods=['GET'])
+def download_pdf(pdf_id):
+    """Download a specific PDF by ID"""
+    if pdf_id not in temp_pdfs:
+        return jsonify({'error': 'PDF not found or expired'}), 404
+    
+    pdf_data = temp_pdfs[pdf_id]
+    pdf_content = pdf_data['content']
+    filename = pdf_data['filename']
+    
+    # Create a BytesIO object with the PDF content
+    pdf_io = io.BytesIO(pdf_content)
+    
+    return send_file(
+        pdf_io,
+        mimetype='application/pdf',
+        as_attachment=True,
+        download_name=filename
+    )
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
