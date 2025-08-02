@@ -98,8 +98,11 @@ def convert_html_to_pdf():
 def convert_file_to_pdf_with_gotenberg(file_content, filename, content_type):
     """Convert any file to PDF using Gotenberg's LibreOffice route"""
     try:
+        logger.info(f"Starting conversion of {filename} ({len(file_content)} bytes, type: {content_type})")
+        
         # Determine the file extension
         file_ext = Path(filename).suffix.lower()
+        logger.info(f"File extension detected: {file_ext}")
         
         # Supported file types that LibreOffice can convert
         supported_extensions = {
@@ -114,10 +117,14 @@ def convert_file_to_pdf_with_gotenberg(file_content, filename, content_type):
             logger.warning(f"File type {file_ext} not supported for conversion")
             return None
         
+        logger.info(f"File type {file_ext} is supported, proceeding with Gotenberg conversion...")
+        
         # Prepare the request to Gotenberg
         files = {
             'files': (filename, file_content, content_type)
         }
+        
+        logger.info(f"Sending {filename} to Gotenberg at {GOTENBERG_URL}/forms/libreoffice/convert")
         
         # Send request to Gotenberg LibreOffice route
         response = requests.post(
@@ -126,15 +133,20 @@ def convert_file_to_pdf_with_gotenberg(file_content, filename, content_type):
             timeout=30
         )
         
+        logger.info(f"Gotenberg response for {filename}: Status {response.status_code}")
+        
         if response.status_code == 200:
-            logger.info(f"Successfully converted {filename} to PDF")
+            pdf_size = len(response.content)
+            logger.info(f"✓ Successfully converted {filename} to PDF ({pdf_size} bytes)")
             return response.content
         else:
-            logger.error(f"Gotenberg conversion failed: {response.status_code} - {response.text}")
+            logger.error(f"✗ Gotenberg conversion failed for {filename}: {response.status_code}")
+            logger.error(f"Response headers: {dict(response.headers)}")
+            logger.error(f"Response text: {response.text[:500]}")  # First 500 chars of error
             return None
             
     except Exception as e:
-        logger.error(f"Error converting file {filename} to PDF: {str(e)}")
+        logger.error(f"✗ Exception during conversion of {filename}: {str(e)}")
         return None
 
 def merge_pdfs_with_gotenberg(pdf_files):
@@ -221,14 +233,15 @@ def convert_with_attachments():
                 filename = attachment['name']
                 content_type = attachment.get('contentType', 'application/octet-stream')
                 
-                logger.info(f"Processing attachment: {filename} ({content_type})")
+                logger.info(f"Processing attachment: {filename} ({content_type}, {len(file_content)} bytes)")
                 
                 # Try to convert the file to PDF using Gotenberg
                 pdf_content = convert_file_to_pdf_with_gotenberg(file_content, filename, content_type)
                 
                 if pdf_content:
+                    converted_pdf_name = f"{Path(filename).stem}_converted.pdf"
                     pdfs_to_merge.append({
-                        'name': f"{Path(filename).stem}_converted.pdf",
+                        'name': converted_pdf_name,
                         'content': pdf_content
                     })
                     converted_attachments.append({
@@ -236,13 +249,13 @@ def convert_with_attachments():
                         'converted': True,
                         'size': len(pdf_content)
                     })
-                    logger.info(f"Successfully converted {filename} to PDF")
+                    logger.info(f"✓ Successfully converted {filename} to PDF ({len(pdf_content)} bytes)")
                 else:
-                    logger.info(f"Could not convert {filename} - will be listed as attachment")
+                    logger.warning(f"✗ Could not convert {filename} - conversion failed")
                     converted_attachments.append({
                         'name': filename,
                         'converted': False,
-                        'reason': 'Unsupported file type or conversion failed'
+                        'reason': 'Conversion failed - unsupported file type or processing error'
                     })
                     
             except Exception as e:
@@ -252,6 +265,8 @@ def convert_with_attachments():
                     'converted': False,
                     'reason': f'Processing error: {str(e)}'
                 })
+        
+        logger.info(f"Attachment processing complete. Total PDFs ready: {len(pdfs_to_merge)} (1 email + {len(pdfs_to_merge)-1} converted attachments)")
         
         # Handle different modes
         if mode == 'individual':
