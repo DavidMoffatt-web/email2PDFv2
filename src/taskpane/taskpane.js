@@ -1,4 +1,4 @@
-console.log('taskpane.js loaded - Server PDF engine only v4.1.3');
+console.log('taskpane.js loaded - Server PDF engine only v4.1.5');
 
 // Global variables for performance optimization
 let serverHealthStatus = { healthy: null, lastCheck: 0 };

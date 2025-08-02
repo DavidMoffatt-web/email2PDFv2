@@ -15,7 +15,9 @@ import zipfile
 import time
 import re
 import hashlib
+import concurrent.futures
 from urllib.parse import urlparse
+from pdf_cache import PdfCache
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -29,6 +31,21 @@ GOTENBERG_URL = os.environ.get('GOTENBERG_URL', 'http://gotenberg:3000')
 
 # Temporary storage for individual PDFs
 temp_pdfs = {}
+
+# Initialize PDF cache
+# Use file-based cache if CACHE_DIR is set, otherwise use in-memory cache
+CACHE_DIR = os.environ.get('CACHE_DIR', None)
+if CACHE_DIR:
+    cache_dir = Path(CACHE_DIR)
+    cache_dir.mkdir(exist_ok=True)
+    logger.info(f"Using file-based PDF cache in {CACHE_DIR}")
+    pdf_cache = PdfCache(cache_dir=CACHE_DIR, max_entries=200, ttl=3600*12)  # 12 hour TTL
+else:
+    logger.info("Using in-memory PDF cache")
+    pdf_cache = PdfCache(max_entries=50, ttl=3600*2)  # 2 hour TTL
+
+# Initialize thread pool executor for parallel processing
+thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 
 def cleanup_old_pdfs():
     """Remove PDFs older than 1 hour to prevent memory leaks"""
@@ -120,8 +137,21 @@ def extract_images_from_html(html_content):
         return []
 
 def convert_image_to_pdf_with_gotenberg(image_data, filename, mime_type):
-    """Convert an image to PDF using Gotenberg's Chromium route"""
+    """Convert an image to PDF using Gotenberg's Chromium route with caching"""
     try:
+        # Create a unique cache key for this image
+        if isinstance(image_data, bytes):
+            cache_key = image_data  # Use binary data directly for hashing
+        else:
+            # If it's base64, we need to add some context to ensure unique hashing
+            cache_key = f"{filename}:{mime_type}:{image_data[:100]}"
+        
+        # Check if we have this image in cache
+        cached_pdf = pdf_cache.get(cache_key)
+        if cached_pdf:
+            logger.info(f"Using cached PDF for image {filename} ({len(cached_pdf)} bytes)")
+            return cached_pdf
+            
         logger.info(f"Converting image {filename} to PDF using Gotenberg")
         
         # Handle different input types - image_data could be binary data or already base64
@@ -195,7 +225,9 @@ def convert_image_to_pdf_with_gotenberg(image_data, filename, mime_type):
             'marginLeft': '0.5',
             'marginRight': '0.5',
             'printBackground': 'true',
-            'preferCSSPageSize': 'false'
+            'preferCSSPageSize': 'false',
+            'waitDelay': '100ms',  # Reduced wait time for images
+            'scale': 1.0          # No scaling
         }
         
         response = requests.post(
@@ -206,8 +238,13 @@ def convert_image_to_pdf_with_gotenberg(image_data, filename, mime_type):
         )
         
         if response.status_code == 200:
-            logger.info(f"✓ Successfully converted image {filename} to PDF ({len(response.content)} bytes)")
-            return response.content
+            pdf_content = response.content
+            logger.info(f"✓ Successfully converted image {filename} to PDF ({len(pdf_content)} bytes)")
+            
+            # Store in cache for future use
+            pdf_cache.put(cache_key, pdf_content)
+            
+            return pdf_content
         else:
             logger.error(f"✗ Failed to convert image {filename} to PDF: {response.status_code}")
             return None
@@ -320,20 +357,48 @@ def health_check():
     """Health check endpoint"""
     try:
         # Check if Gotenberg is available
-        response = requests.get(f"{GOTENBERG_URL}/health", timeout=5)
+        response = requests.get(f"{GOTENBERG_URL}/health", timeout=3)  # Reduced timeout
         gotenberg_status = response.status_code == 200
     except:
         gotenberg_status = False
     
+    # Clean up expired PDFs while we're at it
+    cleanup_old_pdfs()
+    
     return jsonify({
         'status': 'healthy',
         'gotenberg_available': gotenberg_status,
-        'message': 'PDF server is running'
+        'message': 'PDF server is running',
+        'version': '4.1.5'
+    })
+
+@app.route('/cache-status', methods=['GET'])
+def cache_status():
+    """Get PDF cache status"""
+    stats = pdf_cache.get_stats()
+    return jsonify({
+        'cache': stats,
+        'temp_pdfs': len(temp_pdfs)
+    })
+
+@app.route('/clear-cache', methods=['POST'])
+def clear_cache():
+    """Clear PDF cache"""
+    pdf_cache.clear()
+    return jsonify({
+        'success': True,
+        'message': 'PDF cache cleared'
     })
 
 def convert_html_to_pdf_with_gotenberg(html_content):
-    """Convert HTML to PDF using Gotenberg's Chromium route with print-optimized settings"""
+    """Convert HTML to PDF using Gotenberg's Chromium route with print-optimized settings and caching"""
     try:
+        # First, check if we have this exact HTML content in cache
+        cached_pdf = pdf_cache.get(html_content)
+        if cached_pdf:
+            logger.info(f"Using cached PDF conversion ({len(cached_pdf)} bytes)")
+            return cached_pdf
+        
         logger.info(f"Converting HTML email to PDF using Gotenberg ({len(html_content)} characters)")
         
         # Enhance HTML content with print-specific CSS and settings
@@ -435,7 +500,7 @@ def convert_html_to_pdf_with_gotenberg(html_content):
             'files': ('index.html', enhanced_html, 'text/html')
         }
         
-        # Form data for print-like settings
+        # Form data for print-like settings - optimized for speed
         data = {
             'paperWidth': '8.5',      # US Letter width in inches
             'paperHeight': '11',      # US Letter height in inches
@@ -445,7 +510,10 @@ def convert_html_to_pdf_with_gotenberg(html_content):
             'marginRight': '0.5',     # Right margin in inches
             'printBackground': 'true', # Include background colors/images
             'preferCSSPageSize': 'false', # Use our paper size settings
-            'emulateMediaType': 'print'   # Force print media type
+            'emulateMediaType': 'print',  # Force print media type
+            'scale': 1.0,             # No scaling
+            'waitDelay': '100ms',     # Wait for 100ms after page load (reduced from default)
+            'waitForExpression': 'document.readyState === "complete"'  # Wait for page to be fully loaded
         }
         
         # Send request to Gotenberg Chromium route for HTML conversion
@@ -457,9 +525,14 @@ def convert_html_to_pdf_with_gotenberg(html_content):
         )
         
         if response.status_code == 200:
-            pdf_size = len(response.content)
+            pdf_content = response.content
+            pdf_size = len(pdf_content)
             logger.info(f"✓ Successfully converted HTML email to PDF with print settings ({pdf_size} bytes)")
-            return response.content
+            
+            # Store in cache for future use
+            pdf_cache.put(html_content, pdf_content)
+            
+            return pdf_content
         else:
             logger.error(f"✗ Gotenberg HTML conversion failed: {response.status_code}")
             logger.error(f"Response text: {response.text[:500]}")
@@ -494,9 +567,15 @@ def convert_html_to_pdf_with_weasyprint(html_content):
         return None
 
 def convert_file_to_pdf_with_gotenberg(file_content, filename, content_type):
-    """Convert any file to PDF using Gotenberg's LibreOffice route"""
+    """Convert any file to PDF using Gotenberg's LibreOffice route with caching"""
     try:
         logger.info(f"Starting conversion of {filename} ({len(file_content)} bytes, type: {content_type})")
+        
+        # Check cache first using the file content as key
+        cached_pdf = pdf_cache.get(file_content)
+        if cached_pdf:
+            logger.info(f"Using cached PDF conversion for {filename} ({len(cached_pdf)} bytes)")
+            return cached_pdf
         
         # Determine the file extension
         file_ext = Path(filename).suffix.lower()
@@ -519,7 +598,11 @@ def convert_file_to_pdf_with_gotenberg(file_content, filename, content_type):
         if file_ext in image_extensions:
             logger.info(f"Image file {file_ext} detected - converting directly to PDF using image conversion")
             # Use our image-to-PDF conversion for image files
-            return convert_image_to_pdf_with_gotenberg(file_content, filename, content_type)
+            pdf_content = convert_image_to_pdf_with_gotenberg(file_content, filename, content_type)
+            if pdf_content:
+                # We don't need to cache here as the image converter already does caching
+                return pdf_content
+            return None
         elif file_ext not in supported_extensions:
             logger.warning(f"File type {file_ext} not supported for conversion")
             return None
@@ -533,19 +616,24 @@ def convert_file_to_pdf_with_gotenberg(file_content, filename, content_type):
         
         logger.info(f"Sending {filename} to Gotenberg at {GOTENBERG_URL}/forms/libreoffice/convert")
         
-        # Send request to Gotenberg LibreOffice route
+        # Send request to Gotenberg LibreOffice route with optimized timeout
         response = requests.post(
             f"{GOTENBERG_URL}/forms/libreoffice/convert",
             files=files,
-            timeout=30
+            timeout=25  # Slightly reduced timeout
         )
         
         logger.info(f"Gotenberg response for {filename}: Status {response.status_code}")
         
         if response.status_code == 200:
-            pdf_size = len(response.content)
+            pdf_content = response.content
+            pdf_size = len(pdf_content)
             logger.info(f"✓ Successfully converted {filename} to PDF ({pdf_size} bytes)")
-            return response.content
+            
+            # Cache the result for future use
+            pdf_cache.put(file_content, pdf_content)
+            
+            return pdf_content
         else:
             logger.error(f"✗ Gotenberg conversion failed for {filename}: {response.status_code}")
             logger.error(f"Response headers: {dict(response.headers)}")
@@ -678,9 +766,8 @@ def convert_with_attachments():
             'content': email_pdf_content
         }]
         
-        # Convert each attachment to PDF if possible (but skip embedded images in full mode)
-        converted_attachments = []
-        for attachment in attachments:
+        # Define a function to process a single attachment
+        def process_attachment(attachment):
             try:
                 filename = attachment['name']
                 content_type = attachment.get('contentType', 'application/octet-stream')
@@ -688,7 +775,7 @@ def convert_with_attachments():
                 # In full mode, skip embedded images (they're already in the email content)
                 if mode == 'full' and is_embedded_image(attachment, html_content):
                     logger.info(f"Skipping embedded image {filename} in full mode (already in email content)")
-                    continue
+                    return None
                 
                 # Decode base64 content
                 file_content = base64.b64decode(attachment['content'])
@@ -700,31 +787,59 @@ def convert_with_attachments():
                 
                 if pdf_content:
                     converted_pdf_name = f"{Path(filename).stem}_converted.pdf"
-                    pdfs_to_merge.append({
-                        'name': converted_pdf_name,
-                        'content': pdf_content
-                    })
-                    converted_attachments.append({
-                        'name': filename,
-                        'converted': True,
-                        'size': len(pdf_content)
-                    })
                     logger.info(f"✓ Successfully converted {filename} to PDF ({len(pdf_content)} bytes)")
+                    return {
+                        'success': True,
+                        'name': filename,
+                        'pdf_name': converted_pdf_name,
+                        'content': pdf_content,
+                        'size': len(pdf_content)
+                    }
                 else:
                     logger.warning(f"✗ Could not convert {filename} - conversion failed")
-                    converted_attachments.append({
+                    return {
+                        'success': False,
                         'name': filename,
-                        'converted': False,
                         'reason': 'Conversion failed - unsupported file type or processing error'
-                    })
+                    }
                     
             except Exception as e:
                 logger.error(f"Error processing attachment {attachment.get('name', 'unknown')}: {str(e)}")
-                converted_attachments.append({
+                return {
+                    'success': False,
                     'name': attachment.get('name', 'unknown'),
-                    'converted': False,
                     'reason': f'Processing error: {str(e)}'
-                })
+                }
+        
+        # Process attachments in parallel using thread pool
+        logger.info(f"Processing {len(attachments)} attachments in parallel")
+        attachment_futures = []
+        converted_attachments = []
+        
+        # Submit all attachment conversion tasks
+        for attachment in attachments:
+            attachment_futures.append(thread_pool.submit(process_attachment, attachment))
+        
+        # Process results as they complete
+        for future in concurrent.futures.as_completed(attachment_futures):
+            result = future.result()
+            if result:
+                if result['success']:
+                    pdfs_to_merge.append({
+                        'name': result['pdf_name'],
+                        'content': result['content']
+                    })
+                    converted_attachments.append({
+                        'name': result['name'],
+                        'converted': True,
+                        'size': result['size']
+                    })
+                else:
+                    converted_attachments.append({
+                        'name': result['name'],
+                        'converted': False,
+                        'reason': result.get('reason', 'Unknown error')
+                    })
         
         # Extract and convert embedded images if requested
         image_pdfs = []
