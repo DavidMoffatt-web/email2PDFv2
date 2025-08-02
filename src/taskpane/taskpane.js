@@ -1638,6 +1638,7 @@ async function createServerPdf(metaHtml, htmlBody, attachments) {
             html: fullHtml,
             attachments: serverAttachments,
             mode: serverMode,
+            extractImages: (pdfMode === 'images'), // New flag to indicate image extraction is needed
             options: {
                 page_size: 'A4',
                 margin: '20mm',

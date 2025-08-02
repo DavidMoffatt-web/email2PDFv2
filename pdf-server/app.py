@@ -13,6 +13,8 @@ from pathlib import Path
 import logging
 import zipfile
 import time
+import re
+from urllib.parse import urlparse
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -45,6 +47,163 @@ def cleanup_old_pdfs():
 def generate_pdf_id():
     """Generate a unique PDF ID"""
     return f"pdf_{int(time.time() * 1000)}_{len(temp_pdfs)}"
+
+def extract_images_from_html(html_content):
+    """Extract embedded images from HTML content"""
+    try:
+        logger.info("Extracting embedded images from HTML content...")
+        images = []
+        
+        # Pattern to match img tags with src attributes (data URLs and regular URLs)
+        img_pattern = r'<img[^>]*src=["\']([^"\']+)["\'][^>]*>'
+        img_matches = re.findall(img_pattern, html_content, re.IGNORECASE)
+        
+        for i, src in enumerate(img_matches):
+            try:
+                if src.startswith('data:'):
+                    # Handle data URLs (base64 embedded images)
+                    logger.info(f"Found embedded data URL image {i+1}")
+                    
+                    # Extract the data URL components
+                    data_url_pattern = r'data:([^;]+);base64,(.+)'
+                    match = re.match(data_url_pattern, src)
+                    
+                    if match:
+                        mime_type = match.group(1)
+                        base64_data = match.group(2)
+                        
+                        try:
+                            # Decode base64 data
+                            image_data = base64.b64decode(base64_data)
+                            
+                            # Determine file extension from MIME type
+                            extension = {
+                                'image/jpeg': '.jpg',
+                                'image/jpg': '.jpg',
+                                'image/png': '.png',
+                                'image/gif': '.gif',
+                                'image/bmp': '.bmp',
+                                'image/webp': '.webp'
+                            }.get(mime_type, '.jpg')
+                            
+                            filename = f"embedded_image_{i+1}{extension}"
+                            
+                            images.append({
+                                'filename': filename,
+                                'data': image_data,
+                                'mime_type': mime_type,
+                                'size': len(image_data)
+                            })
+                            
+                            logger.info(f"✓ Extracted embedded image: {filename} ({len(image_data)} bytes, {mime_type})")
+                            
+                        except Exception as e:
+                            logger.warning(f"Failed to decode base64 image {i+1}: {str(e)}")
+                            
+                elif src.startswith('cid:'):
+                    # Handle CID references (Content-ID attachments)
+                    logger.info(f"Found CID reference: {src} - skipping (should be handled as attachment)")
+                    
+                else:
+                    # Handle external URLs - we'll skip these for now since they're not embedded
+                    logger.info(f"Found external image URL: {src[:100]}... - skipping external images")
+                    
+            except Exception as e:
+                logger.warning(f"Error processing image {i+1}: {str(e)}")
+                
+        logger.info(f"Extracted {len(images)} embedded images from HTML")
+        return images
+        
+    except Exception as e:
+        logger.error(f"Error extracting images from HTML: {str(e)}")
+        return []
+
+def convert_image_to_pdf_with_gotenberg(image_data, filename, mime_type):
+    """Convert an image to PDF using Gotenberg's Chromium route"""
+    try:
+        logger.info(f"Converting image {filename} to PDF using Gotenberg")
+        
+        # Create HTML wrapper for the image
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <style>
+                @page {{
+                    size: A4;
+                    margin: 20mm;
+                }}
+                body {{
+                    margin: 0;
+                    padding: 20px;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    min-height: calc(100vh - 40mm);
+                    font-family: Arial, sans-serif;
+                }}
+                .image-container {{
+                    text-align: center;
+                    max-width: 100%;
+                }}
+                img {{
+                    max-width: 100%;
+                    max-height: 80vh;
+                    height: auto;
+                    border: 1px solid #ddd;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                }}
+                .image-title {{
+                    margin-bottom: 20px;
+                    font-size: 16px;
+                    color: #333;
+                    font-weight: bold;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="image-container">
+                <div class="image-title">{filename}</div>
+                <img src="data:{mime_type};base64,{base64.b64encode(image_data).decode('utf-8')}" alt="{filename}" />
+            </div>
+        </body>
+        </html>
+        """
+        
+        # Use Gotenberg to convert HTML to PDF
+        files = {
+            'files': ('index.html', html_content, 'text/html')
+        }
+        
+        data = {
+            'paperWidth': '8.5',
+            'paperHeight': '11',
+            'marginTop': '0.5',
+            'marginBottom': '0.5',
+            'marginLeft': '0.5',
+            'marginRight': '0.5',
+            'printBackground': 'true',
+            'preferCSSPageSize': 'false'
+        }
+        
+        response = requests.post(
+            f"{GOTENBERG_URL}/forms/chromium/convert/html",
+            files=files,
+            data=data,
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            logger.info(f"✓ Successfully converted image {filename} to PDF ({len(response.content)} bytes)")
+            return response.content
+        else:
+            logger.error(f"✗ Failed to convert image {filename} to PDF: {response.status_code}")
+            return None
+            
+    except Exception as e:
+        logger.error(f"✗ Exception converting image {filename} to PDF: {str(e)}")
+        return None
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -372,6 +531,7 @@ def convert_with_attachments():
         html_content = data.get('html', '')
         attachments = data.get('attachments', [])
         mode = data.get('mode', 'full')  # 'full' or 'individual'
+        extract_images = data.get('extractImages', False)  # Whether to extract embedded images
         
         if not html_content:
             return jsonify({'error': 'No HTML content provided'}), 400
@@ -437,7 +597,53 @@ def convert_with_attachments():
                     'reason': f'Processing error: {str(e)}'
                 })
         
-        logger.info(f"Attachment processing complete. Total PDFs ready: {len(pdfs_to_merge)} (1 email + {len(pdfs_to_merge)-1} converted attachments)")
+        # Extract and convert embedded images if requested
+        image_pdfs = []
+        if extract_images:
+            logger.info("Image extraction requested - scanning HTML for embedded images...")
+            extracted_images = extract_images_from_html(html_content)
+            
+            for image_info in extracted_images:
+                try:
+                    logger.info(f"Converting extracted image {image_info['filename']} to PDF...")
+                    image_pdf_content = convert_image_to_pdf_with_gotenberg(
+                        image_info['data'], 
+                        image_info['filename'], 
+                        image_info['mime_type']
+                    )
+                    
+                    if image_pdf_content:
+                        image_pdf_name = f"{Path(image_info['filename']).stem}_image.pdf"
+                        pdfs_to_merge.append({
+                            'name': image_pdf_name,
+                            'content': image_pdf_content
+                        })
+                        image_pdfs.append({
+                            'name': image_info['filename'],
+                            'pdf_name': image_pdf_name,
+                            'converted': True,
+                            'size': len(image_pdf_content)
+                        })
+                        logger.info(f"✓ Successfully converted image {image_info['filename']} to PDF")
+                    else:
+                        logger.warning(f"✗ Failed to convert image {image_info['filename']} to PDF")
+                        image_pdfs.append({
+                            'name': image_info['filename'],
+                            'converted': False,
+                            'reason': 'Image to PDF conversion failed'
+                        })
+                        
+                except Exception as e:
+                    logger.error(f"Error converting image {image_info['filename']}: {str(e)}")
+                    image_pdfs.append({
+                        'name': image_info['filename'],
+                        'converted': False,
+                        'reason': f'Processing error: {str(e)}'
+                    })
+            
+            logger.info(f"Image extraction complete. Converted {len([p for p in image_pdfs if p['converted']])} out of {len(extracted_images)} images to PDF")
+        
+        logger.info(f"Attachment processing complete. Total PDFs ready: {len(pdfs_to_merge)} (1 email + {len(pdfs_to_merge)-1} converted files)")
         
         # Handle different modes
         if mode == 'individual':
