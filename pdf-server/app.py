@@ -79,7 +79,7 @@ def convert_html_to_pdf_with_gotenberg(html_content):
                     body {{ 
                         font-family: Arial, sans-serif;
                         font-size: 12pt;
-                        line-height: 1.4;
+                        line-height: 1.6;
                         color: #000;
                         background: white;
                         margin: 0;
@@ -87,27 +87,40 @@ def convert_html_to_pdf_with_gotenberg(html_content):
                     }}
                     .no-print {{ display: none !important; }}
                     img {{ max-width: 100%; height: auto; }}
-                    table {{ border-collapse: collapse; width: 100%; }}
-                    th, td {{ border: 1px solid #ddd; padding: 8px; }}
+                    table {{ 
+                        border-collapse: collapse; 
+                        width: 100%; 
+                        border: none !important;
+                        margin: 1em 0;
+                    }}
+                    th, td {{ 
+                        border: none !important; 
+                        padding: 12px 8px; 
+                        vertical-align: top;
+                    }}
                     h1, h2, h3, h4, h5, h6 {{ 
                         color: #000; 
                         page-break-after: avoid;
-                        margin-top: 1em;
-                        margin-bottom: 0.5em;
+                        margin: 1.2em 0 0.8em 0;
+                        font-weight: bold;
                     }}
-                    p {{ margin: 0.5em 0; }}
+                    p {{ margin: 1em 0; }}
                     blockquote {{ 
-                        margin: 1em 0; 
+                        margin: 1.5em 0; 
                         padding-left: 1em; 
-                        border-left: 3px solid #ccc; 
+                        border-left: none;
                     }}
+                    /* Remove any default borders from email content */
+                    * {{ border: none !important; }}
+                    /* Preserve background colors but remove borders */
+                    [style*="border"] {{ border: none !important; }}
                 }}
                 
-                /* Apply print styles to screen as well for consistency */
+                /* Apply same styles to screen for consistency */
                 body {{ 
                     font-family: Arial, sans-serif;
                     font-size: 12pt;
-                    line-height: 1.4;
+                    line-height: 1.6;
                     color: #000;
                     background: white;
                     margin: 0;
@@ -115,19 +128,31 @@ def convert_html_to_pdf_with_gotenberg(html_content):
                     max-width: 8.5in;
                 }}
                 img {{ max-width: 100%; height: auto; }}
-                table {{ border-collapse: collapse; width: 100%; }}
-                th, td {{ border: 1px solid #ddd; padding: 8px; }}
+                table {{ 
+                    border-collapse: collapse; 
+                    width: 100%; 
+                    border: none !important;
+                    margin: 1em 0;
+                }}
+                th, td {{ 
+                    border: none !important; 
+                    padding: 12px 8px; 
+                    vertical-align: top;
+                }}
                 h1, h2, h3, h4, h5, h6 {{ 
                     color: #000; 
-                    margin-top: 1em;
-                    margin-bottom: 0.5em;
+                    margin: 1.2em 0 0.8em 0;
+                    font-weight: bold;
                 }}
-                p {{ margin: 0.5em 0; }}
+                p {{ margin: 1em 0; }}
                 blockquote {{ 
-                    margin: 1em 0; 
+                    margin: 1.5em 0; 
                     padding-left: 1em; 
-                    border-left: 3px solid #ccc; 
+                    border-left: none;
                 }}
+                /* Remove any borders from email content */
+                * {{ border: none !important; }}
+                [style*="border"] {{ border: none !important; }}
             </style>
         </head>
         <body>
