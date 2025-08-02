@@ -834,6 +834,23 @@ async function createHtmlToPdfmakePdf(metaHtml, htmlBody, attachments) {
         // Combine all HTML and ensure font-family is specified
         let fullHtml = headerHtml + contentHtml + htmlBody;
         
+        // Clean HTML by removing problematic elements that html-to-pdfmake can't handle
+        console.log('Cleaning HTML before processing...');
+        
+        // Remove all <style> tags and their contents (html-to-pdfmake doesn't parse CSS)
+        fullHtml = fullHtml.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
+        
+        // Remove all <script> tags and their contents
+        fullHtml = fullHtml.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+        
+        // Remove HTML comments that might contain CSS or other problematic content
+        fullHtml = fullHtml.replace(/<!--[\s\S]*?-->/g, '');
+        
+        // Remove any remaining CSS rules that might be floating around
+        fullHtml = fullHtml.replace(/\{[^{}]*(?:color|font|margin|padding|background)[^{}]*\}/gi, '');
+        
+        console.log('HTML cleaning completed');
+        
         // Pre-process HTML to replace all font-family references with Roboto
         // This ensures no unknown fonts reach pdfMake
         fullHtml = fullHtml.replace(/font-family\s*:\s*[^;}"]+/gi, 'font-family: Roboto, sans-serif');
