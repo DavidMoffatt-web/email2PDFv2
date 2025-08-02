@@ -1585,8 +1585,7 @@ async function createServerPdf(metaHtml, htmlBody, attachments) {
                         <div class="attachment-name">${attachment.name}</div>
                         <div class="attachment-details">
                             Type: ${attachment.contentType || 'Unknown'} | 
-                            Size: ${fileSizeKB} KB | 
-                            ID: ${attachment.id}
+                            Size: ${fileSizeKB} KB
                         </div>
                     </div>
                 </div>`;
