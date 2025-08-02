@@ -1347,6 +1347,213 @@ async function createHtmlToPdfmakePdf(metaHtml, htmlBody, attachments) {
     }
 }
 
+async function createServerPdf(metaHtml, htmlBody, attachments) {
+    console.log('Creating PDF with server-side generation');
+    
+    try {
+        // Check if server is available
+        const serverUrl = 'http://localhost:5000';
+        
+        // Test server connection first
+        try {
+            const healthResponse = await fetch(`${serverUrl}/health`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                signal: AbortSignal.timeout(5000) // 5 second timeout
+            });
+            
+            if (!healthResponse.ok) {
+                throw new Error(`Server health check failed: ${healthResponse.status}`);
+            }
+        } catch (error) {
+            console.error('Server connection failed:', error);
+            throw new Error('PDF server is not running. Please start the server using: docker-compose up or python pdf-server/app.py');
+        }
+        
+        // Combine metadata and content into a single HTML document
+        const fullHtml = `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Email PDF</title>
+            <style>
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+                    line-height: 1.6;
+                    color: #333;
+                    margin: 0;
+                    padding: 20px;
+                    max-width: 800px;
+                }
+                
+                .email-header {
+                    background-color: #f8f9fa;
+                    border-left: 4px solid #007acc;
+                    padding: 15px;
+                    margin-bottom: 20px;
+                    border-radius: 4px;
+                }
+                
+                .email-header h2 {
+                    margin: 0 0 10px 0;
+                    color: #007acc;
+                    font-size: 16px;
+                }
+                
+                .email-header p {
+                    margin: 4px 0;
+                    font-size: 14px;
+                }
+                
+                .email-content {
+                    border-top: 2px solid #007acc;
+                    padding-top: 20px;
+                }
+                
+                .email-content h2 {
+                    color: #007acc;
+                    font-size: 16px;
+                    margin: 0 0 15px 0;
+                }
+                
+                img {
+                    max-width: 100%;
+                    height: auto;
+                    display: block;
+                    margin: 10px 0;
+                }
+                
+                table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin: 15px 0;
+                }
+                
+                table, th, td {
+                    border: 1px solid #ddd;
+                }
+                
+                th, td {
+                    padding: 8px;
+                    text-align: left;
+                }
+                
+                th {
+                    background-color: #f5f5f5;
+                    font-weight: bold;
+                }
+                
+                ul, ol {
+                    margin: 10px 0;
+                    padding-left: 20px;
+                }
+                
+                li {
+                    margin: 5px 0;
+                }
+                
+                h1, h2, h3, h4, h5, h6 {
+                    margin: 20px 0 10px 0;
+                    line-height: 1.2;
+                }
+                
+                p {
+                    margin: 10px 0;
+                }
+                
+                a {
+                    color: #0066cc;
+                    text-decoration: underline;
+                }
+                
+                blockquote {
+                    border-left: 4px solid #ccc;
+                    margin: 15px 0;
+                    padding: 10px 15px;
+                    background-color: #f9f9f9;
+                    font-style: italic;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="email-header">
+                <h2>Email Details</h2>
+                ${metaHtml}
+            </div>
+            <div class="email-content">
+                <h2>Message Content</h2>
+                ${htmlBody}
+            </div>
+        </body>
+        </html>`;
+        
+        // Prepare the request payload
+        const payload = {
+            html: fullHtml,
+            options: {
+                page_size: 'A4',
+                margin: '20mm',
+                orientation: 'portrait'
+            }
+        };
+        
+        console.log('Sending request to PDF server...');
+        
+        // Send request to server
+        const response = await fetch(`${serverUrl}/convert`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(30000) // 30 second timeout for PDF generation
+        });
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Server error: ${response.status} - ${errorText}`);
+        }
+        
+        // Get the PDF blob
+        const pdfBlob = await response.blob();
+        
+        if (pdfBlob.size === 0) {
+            throw new Error('Server returned empty PDF');
+        }
+        
+        // Create download link
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(pdfBlob);
+        link.download = (Office.context.mailbox.item.subject || 'email') + '.pdf';
+        link.click();
+        
+        // Clean up the blob URL
+        setTimeout(() => {
+            URL.revokeObjectURL(link.href);
+        }, 1000);
+        
+        console.log('PDF created successfully with server-side generation');
+        
+    } catch (err) {
+        console.error('Error creating PDF with server:', err);
+        
+        // Provide helpful error messages
+        if (err.message.includes('server is not running')) {
+            alert('PDF Server Error: The PDF server is not running.\n\nTo start the server:\n1. Open a terminal\n2. Navigate to the project folder\n3. Run: docker-compose up\n\nOr see the README for detailed instructions.');
+        } else if (err.message.includes('timeout')) {
+            alert('PDF Generation Timeout: The server took too long to respond. Please try again with a shorter email or check your server logs.');
+        } else {
+            alert(`PDF Generation Error: ${err.message}\n\nPlease check that the PDF server is running and try again.`);
+        }
+        
+        throw err;
+    }
+}
+
 async function createIndividualPdfs(htmlContent, attachments, imgSources, includeImages, metaHtml) {
     console.log('Creating individual PDFs');
     
@@ -1508,6 +1715,8 @@ function initializeApp() {
                                 await createPdfLibTextPdf(metaHtml, htmlBody, attachments);
                             } else if (engine === 'html-to-pdfmake') {
                                 await createHtmlToPdfmakePdf(metaHtml, htmlBody, attachments);
+                            } else if (engine === 'server-pdf') {
+                                await createServerPdf(metaHtml, htmlBody, attachments);
                             } else {
                                 if (mode === 'full') {
                                     await createPdf(metaHtml + htmlBody, attachments, imgSources);
@@ -1674,6 +1883,9 @@ function initializeApp() {
                         }
                         await createPdfLibTextPdf(testMetaHtml, testHtmlBody, []);
                         console.log('Test completed successfully with pdf-lib');
+                    } else if (engine === 'server-pdf') {
+                        await createServerPdf(testMetaHtml, testHtmlBody, []);
+                        console.log('Test completed successfully with server-pdf');
                     } else {
                         // html2pdf test
                         await createPdf(testMetaHtml + testHtmlBody, [], []);

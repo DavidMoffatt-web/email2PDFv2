@@ -1,0 +1,21 @@
+# Docker ignore file
+.git
+.gitignore
+README.md
+test_server.py
+test_output.pdf
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+.env
+.venv
+venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache
+.coverage
+htmlcov/
+.DS_Store
+Thumbs.db
