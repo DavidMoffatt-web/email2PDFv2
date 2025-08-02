@@ -123,6 +123,29 @@ def convert_image_to_pdf_with_gotenberg(image_data, filename, mime_type):
     try:
         logger.info(f"Converting image {filename} to PDF using Gotenberg")
         
+        # Handle different input types - image_data could be binary data or already base64
+        if isinstance(image_data, bytes):
+            # Binary image data - encode to base64
+            base64_image = base64.b64encode(image_data).decode('utf-8')
+        else:
+            # Assume it's already base64 encoded
+            base64_image = image_data
+        
+        # If mime_type is not provided or doesn't look like an image type, try to detect it
+        if not mime_type or not mime_type.startswith('image/'):
+            # Try to detect from filename extension
+            file_ext = Path(filename).suffix.lower()
+            mime_type = {
+                '.jpg': 'image/jpeg',
+                '.jpeg': 'image/jpeg', 
+                '.png': 'image/png',
+                '.gif': 'image/gif',
+                '.bmp': 'image/bmp',
+                '.webp': 'image/webp'
+            }.get(file_ext, 'image/jpeg')  # Default to JPEG if unknown
+            
+        logger.info(f"Using MIME type: {mime_type} for image {filename}")
+        
         # Create HTML wrapper for the image
         html_content = f"""
         <!DOCTYPE html>
@@ -132,41 +155,28 @@ def convert_image_to_pdf_with_gotenberg(image_data, filename, mime_type):
             <style>
                 @page {{
                     size: A4;
-                    margin: 20mm;
+                    margin: 0;
                 }}
                 body {{
                     margin: 0;
-                    padding: 20px;
+                    padding: 0;
+                    width: 100vw;
+                    height: 100vh;
                     display: flex;
                     justify-content: center;
                     align-items: center;
-                    min-height: calc(100vh - 40mm);
-                    font-family: Arial, sans-serif;
-                }}
-                .image-container {{
-                    text-align: center;
-                    max-width: 100%;
                 }}
                 img {{
-                    max-width: 100%;
-                    max-height: 80vh;
+                    max-width: 100vw;
+                    max-height: 100vh;
+                    width: auto;
                     height: auto;
-                    border: 1px solid #ddd;
-                    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-                }}
-                .image-title {{
-                    margin-bottom: 20px;
-                    font-size: 16px;
-                    color: #333;
-                    font-weight: bold;
+                    object-fit: contain;
                 }}
             </style>
         </head>
         <body>
-            <div class="image-container">
-                <div class="image-title">{filename}</div>
-                <img src="data:{mime_type};base64,{base64.b64encode(image_data).decode('utf-8')}" alt="{filename}" />
-            </div>
+            <img src="data:{mime_type};base64,{base64_image}" alt="{filename}" />
         </body>
         </html>
         """
@@ -204,6 +214,73 @@ def convert_image_to_pdf_with_gotenberg(image_data, filename, mime_type):
     except Exception as e:
         logger.error(f"✗ Exception converting image {filename} to PDF: {str(e)}")
         return None
+
+def resolve_cid_images_in_html(html_content, attachments):
+    """Replace CID references in HTML with base64 data URLs"""
+    try:
+        logger.info("Resolving CID image references in HTML...")
+        
+        # Find all CID references in the HTML
+        cid_pattern = r'src=["\']cid:([^"\']+)["\']'
+        cid_matches = re.findall(cid_pattern, html_content, re.IGNORECASE)
+        
+        resolved_count = 0
+        for cid in cid_matches:
+            logger.info(f"Attempting to resolve CID: {cid}")
+            
+            # Look for matching attachment
+            for attachment in attachments:
+                attachment_name = attachment.get('name', '')
+                content_type = attachment.get('contentType', '')
+                
+                # Check if this attachment matches the CID or is an image
+                if (cid in attachment_name or 
+                    content_type.startswith('image/') or
+                    attachment_name.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'))):
+                    
+                    try:
+                        # Get the image data
+                        image_data = attachment.get('content', '')
+                        if not image_data:
+                            continue
+                            
+                        # If content_type is not set, try to detect it
+                        if not content_type or not content_type.startswith('image/'):
+                            file_ext = Path(attachment_name).suffix.lower()
+                            content_type = {
+                                '.jpg': 'image/jpeg',
+                                '.jpeg': 'image/jpeg',
+                                '.png': 'image/png',
+                                '.gif': 'image/gif',
+                                '.bmp': 'image/bmp',
+                                '.webp': 'image/webp'
+                            }.get(file_ext, 'image/jpeg')
+                        
+                        # Create data URL
+                        data_url = f"data:{content_type};base64,{image_data}"
+                        
+                        # Replace the CID reference with the data URL
+                        old_src = f'src="cid:{cid}"'
+                        new_src = f'src="{data_url}"'
+                        html_content = html_content.replace(old_src, new_src)
+                        
+                        old_src_single = f"src='cid:{cid}'"
+                        new_src_single = f"src='{data_url}'"
+                        html_content = html_content.replace(old_src_single, new_src_single)
+                        
+                        logger.info(f"✓ Resolved CID {cid} to data URL using attachment {attachment_name}")
+                        resolved_count += 1
+                        break
+                        
+                    except Exception as e:
+                        logger.warning(f"Error resolving CID {cid} with attachment {attachment_name}: {str(e)}")
+        
+        logger.info(f"Resolved {resolved_count} out of {len(cid_matches)} CID references")
+        return html_content
+        
+    except Exception as e:
+        logger.error(f"Error resolving CID images: {str(e)}")
+        return html_content
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -401,7 +478,16 @@ def convert_file_to_pdf_with_gotenberg(file_content, filename, content_type):
             '.html', '.htm'                   # HTML files
         }
         
-        if file_ext not in supported_extensions:
+        # Image file types that we can convert directly to PDF
+        image_extensions = {
+            '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'
+        }
+        
+        if file_ext in image_extensions:
+            logger.info(f"Image file {file_ext} detected - converting directly to PDF using image conversion")
+            # Use our image-to-PDF conversion for image files
+            return convert_image_to_pdf_with_gotenberg(file_content, filename, content_type)
+        elif file_ext not in supported_extensions:
             logger.warning(f"File type {file_ext} not supported for conversion")
             return None
         
@@ -536,6 +622,10 @@ def convert_with_attachments():
         if not html_content:
             return jsonify({'error': 'No HTML content provided'}), 400
         
+        # Resolve CID image references in the HTML before converting to PDF
+        if attachments:
+            html_content = resolve_cid_images_in_html(html_content, attachments)
+        
         # Convert main email HTML to PDF using Gotenberg (with WeasyPrint fallback)
         logger.info("Converting email HTML to PDF...")
         email_pdf_content = convert_html_to_pdf_with_gotenberg(html_content)
@@ -603,6 +693,37 @@ def convert_with_attachments():
             logger.info("Image extraction requested - scanning HTML for embedded images...")
             extracted_images = extract_images_from_html(html_content)
             
+            # Also look for CID references that match attachments
+            cid_pattern = r'cid:([^"\'>\s]+)'
+            cid_matches = re.findall(cid_pattern, html_content, re.IGNORECASE)
+            
+            for cid in cid_matches:
+                logger.info(f"Found CID reference: {cid}")
+                # Look for matching attachment by CID or similar filename patterns
+                for attachment in attachments:
+                    attachment_name = attachment.get('name', '')
+                    # Check if the attachment name contains the CID or is an image
+                    if (cid in attachment_name or 
+                        attachment_name.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'))):
+                        try:
+                            logger.info(f"Found matching CID attachment: {attachment_name}")
+                            file_content = base64.b64decode(attachment['content'])
+                            content_type = attachment.get('contentType', 'image/jpeg')
+                            
+                            # Add this as an extracted image for individual PDF creation
+                            extracted_images.append({
+                                'filename': attachment_name,
+                                'data': file_content,
+                                'mime_type': content_type,
+                                'size': len(file_content),
+                                'is_cid': True,
+                                'cid': cid
+                            })
+                            logger.info(f"Added CID image {attachment_name} for individual PDF conversion")
+                            break
+                        except Exception as e:
+                            logger.warning(f"Error processing CID attachment {attachment_name}: {str(e)}")
+            
             for image_info in extracted_images:
                 try:
                     logger.info(f"Converting extracted image {image_info['filename']} to PDF...")
@@ -613,7 +734,9 @@ def convert_with_attachments():
                     )
                     
                     if image_pdf_content:
-                        image_pdf_name = f"{Path(image_info['filename']).stem}_image.pdf"
+                        # Use a cleaner name for the PDF
+                        base_name = Path(image_info['filename']).stem
+                        image_pdf_name = f"{base_name}.pdf"
                         pdfs_to_merge.append({
                             'name': image_pdf_name,
                             'content': image_pdf_content
@@ -622,7 +745,8 @@ def convert_with_attachments():
                             'name': image_info['filename'],
                             'pdf_name': image_pdf_name,
                             'converted': True,
-                            'size': len(image_pdf_content)
+                            'size': len(image_pdf_content),
+                            'is_cid': image_info.get('is_cid', False)
                         })
                         logger.info(f"✓ Successfully converted image {image_info['filename']} to PDF")
                     else:
