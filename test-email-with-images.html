@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Email with Images</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .header { background-color: #f0f0f0; padding: 10px; border-radius: 5px; }
+        .image-container { margin: 20px 0; text-align: center; }
+        img { max-width: 200px; border: 1px solid #ccc; margin: 10px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Test Email with External Images</h1>
+        <p>From: test@example.com</p>
+        <p>To: recipient@example.com</p>
+        <p>Subject: Testing PDF Generation with Images</p>
+    </div>
+    
+    <div class="content">
+        <p>This is a test email that contains external images. These images should be converted to base64 data URLs when generating the PDF.</p>
+        
+        <div class="image-container">
+            <h3>Sample Images:</h3>
+            
+            <!-- Small placeholder image from placeholder.com -->
+            <img src="https://via.placeholder.com/150x100/0066cc/ffffff?text=Image+1" alt="Test Image 1">
+            
+            <!-- Another placeholder image -->
+            <img src="https://via.placeholder.com/150x100/cc6600/ffffff?text=Image+2" alt="Test Image 2">
+            
+            <!-- Third placeholder image -->
+            <img src="https://via.placeholder.com/150x100/00cc66/ffffff?text=Image+3" alt="Test Image 3">
+        </div>
+        
+        <p>The images above should appear in the generated PDF after being converted to base64 data URLs.</p>
+        
+        <h3>Additional Content:</h3>
+        <ul>
+            <li>This text should remain selectable in the PDF</li>
+            <li>Font mapping should work correctly</li>
+            <li>Images should be embedded as base64 data</li>
+            <li>No CORS or VFS errors should occur</li>
+        </ul>
+    </div>
+    
+    <div class="footer">
+        <p><em>End of test email content.</em></p>
+    </div>
+</body>
+</html>

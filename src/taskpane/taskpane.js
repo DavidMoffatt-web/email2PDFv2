@@ -752,6 +752,105 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
     }
 }
 
+// Helper function to convert external images to base64 data URLs
+async function convertExternalImagesToDataUrls(html) {
+    console.log('Converting external images to data URLs...');
+    
+    // Function to convert a single image URL to base64 data URL
+    function getBase64ImageFromURL(url) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.setAttribute("crossOrigin", "anonymous");
+            
+            img.onload = () => {
+                try {
+                    const canvas = document.createElement("canvas");
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    
+                    const ctx = canvas.getContext("2d");
+                    ctx.drawImage(img, 0, 0);
+                    
+                    const dataURL = canvas.toDataURL("image/png");
+                    resolve(dataURL);
+                } catch (error) {
+                    console.warn('Failed to convert image to canvas:', url, error);
+                    reject(error);
+                }
+            };
+            
+            img.onerror = (error) => {
+                console.warn('Failed to load image:', url, error);
+                reject(error);
+            };
+            
+            // Set a timeout to avoid hanging on slow/unresponsive images
+            setTimeout(() => {
+                reject(new Error('Image load timeout'));
+            }, 10000); // 10 second timeout
+            
+            img.src = url;
+        });
+    }
+    
+    // Find all image tags with external URLs
+    const imageRegex = /<img[^>]*src\s*=\s*["']([^"']*)[^>]*>/gi;
+    const imagesToConvert = [];
+    let match;
+    
+    // Collect all external image URLs
+    while ((match = imageRegex.exec(html)) !== null) {
+        const [fullMatch, src] = match;
+        if (src.startsWith('http://') || src.startsWith('https://')) {
+            imagesToConvert.push({ fullMatch, src, index: match.index });
+        }
+    }
+    
+    console.log(`Found ${imagesToConvert.length} external images to convert`);
+    
+    // Convert each image to data URL
+    let updatedHtml = html;
+    let offset = 0; // Track offset changes due to string replacements
+    
+    for (const imageInfo of imagesToConvert) {
+        try {
+            console.log(`Converting image: ${imageInfo.src}`);
+            const dataUrl = await getBase64ImageFromURL(imageInfo.src);
+            
+            // Replace the original src with the data URL
+            const newImageTag = imageInfo.fullMatch.replace(imageInfo.src, dataUrl);
+            
+            // Calculate the actual position with offset
+            const actualIndex = imageInfo.index + offset;
+            const beforeReplacement = updatedHtml.substring(0, actualIndex);
+            const afterReplacement = updatedHtml.substring(actualIndex + imageInfo.fullMatch.length);
+            
+            updatedHtml = beforeReplacement + newImageTag + afterReplacement;
+            
+            // Update offset for next replacement
+            offset += (newImageTag.length - imageInfo.fullMatch.length);
+            
+            console.log(`Successfully converted image: ${imageInfo.src}`);
+        } catch (error) {
+            console.warn(`Failed to convert image ${imageInfo.src}, removing it:`, error);
+            
+            // If conversion fails, remove the image tag
+            const actualIndex = imageInfo.index + offset;
+            const beforeReplacement = updatedHtml.substring(0, actualIndex);
+            const afterReplacement = updatedHtml.substring(actualIndex + imageInfo.fullMatch.length);
+            const replacement = '<!-- Image conversion failed, removed -->';
+            
+            updatedHtml = beforeReplacement + replacement + afterReplacement;
+            
+            // Update offset for next replacement
+            offset += (replacement.length - imageInfo.fullMatch.length);
+        }
+    }
+    
+    console.log('Image conversion completed');
+    return updatedHtml;
+}
+
 async function createHtmlToPdfmakePdf(metaHtml, htmlBody, attachments) {
     console.log('Creating PDF with html-to-pdfmake');
     
@@ -862,24 +961,15 @@ async function createHtmlToPdfmakePdf(metaHtml, htmlBody, attachments) {
         // Handle any remaining font references in CSS
         fullHtml = fullHtml.replace(/(Aptos|Calibri|Arial|Times New Roman|Helvetica|serif|sans-serif|monospace)/gi, 'Roboto');
         
-        // Pre-process HTML to handle problematic external images that might cause CORS issues
-        // Remove ALL external images (http/https URLs) since they consistently cause VFS errors in pdfMake
-        fullHtml = fullHtml.replace(/<img[^>]*src\s*=\s*["']([^"']*)[^>]*>/gi, (match, src) => {
-            // Check if this is an external URL (http/https)
-            if (src.startsWith('http://') || src.startsWith('https://')) {
-                console.log('Removing external image to prevent VFS errors:', src);
-                return '<!-- External image removed to prevent CORS/VFS errors -->';
-            }
-            
-            // Keep data URLs and relative paths
-            return match;
-        });
+        // Pre-process HTML to handle external images by converting them to data URLs
+        // This allows pdfMake to handle images properly instead of throwing VFS errors
+        fullHtml = await convertExternalImagesToDataUrls(fullHtml);
         
         // Configure html-to-pdfmake options with font mapping and conservative image handling
         const options = {
             tableAutoSize: true,
             removeExtraBlanks: true,
-            imagesByReference: false, // Disable to avoid CORS issues with external images
+            imagesByReference: false, // Keep disabled as we're now using data URLs
             fontMapping: {
                 'Aptos': 'Roboto',
                 'Calibri': 'Roboto', 
@@ -1212,8 +1302,16 @@ function initializeApp() {
                     
                     const testHtmlBody = `
                         <div style="font-family: Aptos, sans-serif; font-size: 14px; line-height: 1.6;">
-                            <h1 style="font-family: Aptos, sans-serif; color: #005a9f;">Test Email with Different Fonts</h1>
+                            <h1 style="font-family: Aptos, sans-serif; color: #005a9f;">Test Email with Different Fonts and Images</h1>
                             <p style="font-family: Aptos, sans-serif;">This paragraph uses <strong>Aptos font</strong> which should be mapped to Roboto.</p>
+                            
+                            <h2 style="font-family: Calibri, sans-serif; color: #005a9f;">Images Test Section</h2>
+                            <p style="font-family: Calibri, sans-serif;">The images below should be converted to base64 data URLs in html-to-pdfmake engine:</p>
+                            
+                            <div style="text-align: center; margin: 20px 0;">
+                                <img src="https://via.placeholder.com/150x100/0066cc/ffffff?text=Image+1" alt="Test Image 1" style="margin: 10px; border: 1px solid #ccc;">
+                                <img src="https://via.placeholder.com/150x100/cc6600/ffffff?text=Image+2" alt="Test Image 2" style="margin: 10px; border: 1px solid #ccc;">
+                            </div>
                             
                             <h2 style="font-family: Calibri, sans-serif; color: #005a9f;">Calibri Heading</h2>
                             <p style="font-family: Calibri, sans-serif;">This text is in <em>Calibri font</em> which should also map to Roboto.</p>
@@ -1224,6 +1322,10 @@ function initializeApp() {
                                 <li>Another list item with <strong>bold Arial text</strong></li>
                                 <li>Third item with <a href="#" style="color: #0066cc;">a link in Arial</a></li>
                             </ul>
+                            
+                            <div style="text-align: center; margin: 20px 0;">
+                                <img src="https://via.placeholder.com/200x80/00cc66/ffffff?text=Image+3+Wider" alt="Test Image 3" style="margin: 10px; border: 1px solid #ccc;">
+                            </div>
                             
                             <h3 style="font-family: Times New Roman, serif;">Times New Roman Section</h3>
                             <p style="font-family: Times New Roman, serif;">This paragraph uses Times New Roman, which should also be mapped to Roboto for consistency.</p>
@@ -1247,6 +1349,9 @@ function initializeApp() {
                             <p style="font-family: sans-serif; color: #666; font-size: 12px;">
                                 This test email contains various font families commonly used in Office emails:
                                 Aptos, Calibri, Arial, Times New Roman, and Helvetica. All should be mapped to Roboto in the PDF output.
+                                <br><br>
+                                <strong>Images:</strong> External images should be converted to base64 data URLs for html-to-pdfmake, 
+                                or removed for other engines to prevent CORS errors.
                             </p>
                         </div>
                     `;
