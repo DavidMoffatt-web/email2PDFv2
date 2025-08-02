@@ -1,0 +1,7 @@
+{
+  "html": "<h1>Test PDF Generation</h1><p>This is a test document to verify the server is working correctly.</p><p>The server should convert this HTML to a high-quality PDF using WeasyPrint.</p>",
+  "options": {
+    "page_size": "A4",
+    "margin": "20mm"
+  }
+}

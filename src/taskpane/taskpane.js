@@ -1504,7 +1504,7 @@ async function createServerPdf(metaHtml, htmlBody, attachments) {
         console.log('Sending request to PDF server...');
         
         // Send request to server
-        const response = await fetch(`${serverUrl}/convert`, {
+        const response = await fetch(`${serverUrl}/convert-binary`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -1518,7 +1518,7 @@ async function createServerPdf(metaHtml, htmlBody, attachments) {
             throw new Error(`Server error: ${response.status} - ${errorText}`);
         }
         
-        // Get the PDF blob
+        // Get the PDF blob (now raw binary instead of JSON)
         const pdfBlob = await response.blob();
         
         if (pdfBlob.size === 0) {

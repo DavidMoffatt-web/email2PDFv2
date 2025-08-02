@@ -10,7 +10,7 @@ import base64
 import tempfile
 import logging
 from datetime import datetime
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, Response
 from flask_cors import CORS
 import weasyprint
 from weasyprint import HTML, CSS
@@ -219,6 +219,178 @@ def convert_to_pdf():
     
     except Exception as e:
         logger.error(f"Error generating PDF: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': 'Internal server error during PDF generation'
+        }), 500
+
+@app.route('/convert-binary', methods=['POST'])
+def convert_to_pdf_binary():
+    """
+    Convert HTML content to PDF and return raw binary
+    Same as /convert but returns PDF binary directly instead of base64 JSON
+    """
+    try:
+        # Validate request
+        if not request.is_json:
+            raise BadRequest("Content-Type must be application/json")
+        
+        data = request.get_json()
+        if not data or 'html' not in data:
+            raise BadRequest("Missing 'html' field in request body")
+        
+        html_content = data['html']
+        css_content = data.get('css', '')
+        options = data.get('options', {})
+        
+        logger.info(f"Processing binary PDF conversion request, HTML length: {len(html_content)}")
+        
+        # Default options
+        page_size = options.get('page_size', 'A4')
+        margin = options.get('margin', '20mm')
+        orientation = options.get('orientation', 'portrait')
+        
+        # Enhanced CSS with better styling
+        base_css = f"""
+        @page {{
+            size: {page_size} {orientation};
+            margin: {margin};
+        }}
+        
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            font-size: 11pt;
+        }}
+        
+        /* Images */
+        img {{
+            max-width: 100%;
+            height: auto;
+            display: block;
+            margin: 10px 0;
+        }}
+        
+        /* Table styling */
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }}
+        
+        table, th, td {{
+            border: 1px solid #ddd;
+        }}
+        
+        th, td {{
+            padding: 8px;
+            text-align: left;
+        }}
+        
+        th {{
+            background-color: #f5f5f5;
+            font-weight: bold;
+        }}
+        
+        /* Lists */
+        ul, ol {{
+            margin: 10px 0;
+            padding-left: 20px;
+        }}
+        
+        li {{
+            margin: 5px 0;
+        }}
+        
+        /* Headings */
+        h1, h2, h3, h4, h5, h6 {{
+            margin: 20px 0 10px 0;
+            line-height: 1.2;
+        }}
+        
+        /* Paragraphs */
+        p {{
+            margin: 10px 0;
+        }}
+        
+        /* Links */
+        a {{
+            color: #0066cc;
+            text-decoration: underline;
+        }}
+        
+        /* Code blocks */
+        pre, code {{
+            font-family: 'Courier New', monospace;
+            background-color: #f5f5f5;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }}
+        
+        pre {{
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+        }}
+        
+        /* Blockquotes */
+        blockquote {{
+            margin: 10px 0;
+            padding: 10px 20px;
+            border-left: 4px solid #ddd;
+            background-color: #f9f9f9;
+        }}
+        """
+        
+        # Combine base CSS with custom CSS
+        final_css = base_css + "\n" + css_content
+        
+        # Create temporary file for PDF
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_pdf:
+            try:
+                # Generate PDF using WeasyPrint
+                html_doc = HTML(string=html_content)
+                css_doc = CSS(string=final_css)
+                
+                html_doc.write_pdf(
+                    temp_pdf.name,
+                    stylesheets=[css_doc],
+                    optimize_images=True
+                )
+                
+                # Read PDF content
+                with open(temp_pdf.name, 'rb') as pdf_file:
+                    pdf_content = pdf_file.read()
+                
+                logger.info(f"Binary PDF generated successfully, size: {len(pdf_content)} bytes")
+                
+                # Return raw PDF binary
+                return Response(
+                    pdf_content,
+                    mimetype='application/pdf',
+                    headers={
+                        'Content-Disposition': 'attachment; filename="email.pdf"',
+                        'Content-Length': str(len(pdf_content))
+                    }
+                )
+                
+            finally:
+                # Clean up temporary file
+                try:
+                    os.unlink(temp_pdf.name)
+                except OSError:
+                    pass
+                    
+    except BadRequest as e:
+        logger.warning(f"Bad request: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 400
+    
+    except Exception as e:
+        logger.error(f"Error generating binary PDF: {str(e)}")
         return jsonify({
             'success': False,
             'error': 'Internal server error during PDF generation'
