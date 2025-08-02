@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, make_response
 from flask_cors import CORS
 import weasyprint
 import tempfile
@@ -62,15 +62,40 @@ def health_check():
         'message': 'PDF server is running'
     })
 
-@app.route('/convert', methods=['POST'])
-def convert_html_to_pdf():
-    """Convert HTML to PDF using WeasyPrint"""
+def convert_html_to_pdf_with_gotenberg(html_content):
+    """Convert HTML to PDF using Gotenberg's Chromium route"""
     try:
-        data = request.get_json()
-        html_content = data.get('html', '')
+        logger.info(f"Converting HTML email to PDF using Gotenberg ({len(html_content)} characters)")
         
-        if not html_content:
-            return jsonify({'error': 'No HTML content provided'}), 400
+        # Prepare the HTML file for Gotenberg
+        files = {
+            'files': ('email.html', html_content, 'text/html')
+        }
+        
+        # Send request to Gotenberg Chromium route for HTML conversion
+        response = requests.post(
+            f"{GOTENBERG_URL}/forms/chromium/convert/html",
+            files=files,
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            pdf_size = len(response.content)
+            logger.info(f"✓ Successfully converted HTML email to PDF ({pdf_size} bytes)")
+            return response.content
+        else:
+            logger.error(f"✗ Gotenberg HTML conversion failed: {response.status_code}")
+            logger.error(f"Response text: {response.text[:500]}")
+            return None
+            
+    except Exception as e:
+        logger.error(f"✗ Exception during HTML conversion: {str(e)}")
+        return None
+
+def convert_html_to_pdf_with_weasyprint(html_content):
+    """Fallback: Convert HTML to PDF using WeasyPrint"""
+    try:
+        logger.info("Using WeasyPrint fallback for HTML conversion")
         
         # Create temporary file for the PDF
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
@@ -83,17 +108,13 @@ def convert_html_to_pdf():
             
             # Clean up temporary file
             os.unlink(temp_file.name)
-        
-        return send_file(
-            io.BytesIO(pdf_content),
-            as_attachment=True,
-            download_name='email.pdf',
-            mimetype='application/pdf'
-        )
-    
+            
+        logger.info(f"✓ WeasyPrint conversion successful ({len(pdf_content)} bytes)")
+        return pdf_content
+            
     except Exception as e:
-        logger.error(f"Error converting HTML to PDF: {str(e)}")
-        return jsonify({'error': f'Failed to convert HTML to PDF: {str(e)}'}), 500
+        logger.error(f"✗ WeasyPrint conversion failed: {str(e)}")
+        return None
 
 def convert_file_to_pdf_with_gotenberg(file_content, filename, content_type):
     """Convert any file to PDF using Gotenberg's LibreOffice route"""
@@ -197,6 +218,44 @@ def fallback_merge_pdfs(pdf_files):
         logger.error(f"Fallback PDF merge failed: {str(e)}")
         return None
 
+@app.route('/convert', methods=['POST'])
+def convert():
+    """Convert HTML email to PDF (simple conversion without attachments)"""
+    logger.info("=== EMAIL CONVERSION REQUEST RECEIVED ===")
+    try:
+        data = request.get_json()
+        html_content = data.get('html', '')
+        
+        if not html_content:
+            logger.error("No HTML content received")
+            return jsonify({'success': False, 'error': 'No HTML content provided'}), 400
+        
+        logger.info(f"Converting HTML content ({len(html_content)} characters)")
+        
+        # Try Gotenberg first for better HTML rendering
+        pdf_content = convert_html_to_pdf_with_gotenberg(html_content)
+        
+        # Fallback to WeasyPrint if Gotenberg fails
+        if pdf_content is None:
+            logger.warning("Gotenberg failed, trying WeasyPrint fallback")
+            pdf_content = convert_html_to_pdf_with_weasyprint(html_content)
+        
+        if pdf_content is None:
+            raise Exception("Both Gotenberg and WeasyPrint conversion failed")
+        
+        logger.info(f"✓ PDF conversion successful ({len(pdf_content)} bytes)")
+        
+        # Return the PDF as bytes
+        response = make_response(pdf_content)
+        response.headers['Content-Type'] = 'application/pdf'
+        response.headers['Content-Disposition'] = 'attachment; filename="email.pdf"'
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"✗ Conversion failed: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/convert-with-attachments', methods=['POST'])
 def convert_with_attachments():
     """Convert HTML email to PDF and include converted attachments"""
@@ -209,14 +268,18 @@ def convert_with_attachments():
         if not html_content:
             return jsonify({'error': 'No HTML content provided'}), 400
         
-        # Convert main email HTML to PDF using WeasyPrint
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
-            weasyprint.HTML(string=html_content).write_pdf(temp_file.name)
-            
-            with open(temp_file.name, 'rb') as pdf_file:
-                email_pdf_content = pdf_file.read()
-            
-            os.unlink(temp_file.name)
+        # Convert main email HTML to PDF using Gotenberg (with WeasyPrint fallback)
+        logger.info("Converting email HTML to PDF...")
+        email_pdf_content = convert_html_to_pdf_with_gotenberg(html_content)
+        
+        if email_pdf_content is None:
+            logger.warning("Gotenberg failed for email HTML, trying WeasyPrint fallback")
+            email_pdf_content = convert_html_to_pdf_with_weasyprint(html_content)
+        
+        if email_pdf_content is None:
+            raise Exception("Failed to convert email HTML to PDF with both methods")
+        
+        logger.info(f"✓ Email HTML converted to PDF ({len(email_pdf_content)} bytes)")
         
         # Prepare list of PDFs to merge (starting with email PDF)
         pdfs_to_merge = [{
@@ -355,14 +418,18 @@ def convert_with_attachments_debug():
         if not html_content:
             return jsonify({'error': 'No HTML content provided'}), 400
         
-        # Convert main email HTML to PDF using WeasyPrint
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
-            weasyprint.HTML(string=html_content).write_pdf(temp_file.name)
-            
-            with open(temp_file.name, 'rb') as pdf_file:
-                email_pdf_content = pdf_file.read()
-            
-            os.unlink(temp_file.name)
+        # Convert main email HTML to PDF using Gotenberg (with WeasyPrint fallback)
+        logger.info("Converting email HTML to PDF...")
+        email_pdf_content = convert_html_to_pdf_with_gotenberg(html_content)
+        
+        if email_pdf_content is None:
+            logger.warning("Gotenberg failed for email HTML, trying WeasyPrint fallback")
+            email_pdf_content = convert_html_to_pdf_with_weasyprint(html_content)
+        
+        if email_pdf_content is None:
+            raise Exception("Failed to convert email HTML to PDF with both methods")
+        
+        logger.info(f"✓ Email HTML converted to PDF ({len(email_pdf_content)} bytes)")
         
         # Prepare list of PDFs to merge (starting with email PDF)
         pdfs_to_merge = [{
