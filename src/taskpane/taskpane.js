@@ -1,8 +1,13 @@
-console.log('taskpane.js loaded - Server PDF engine only v4.1.1');
+console.log('taskpane.js loaded - Server PDF engine only v4.1.3');
 
 // Global variables for performance optimization
 let serverHealthStatus = { healthy: null, lastCheck: 0 };
 const HEALTH_CHECK_CACHE_DURATION = 30000; // 30 seconds
+
+// Cache for converted images to avoid redundant processing
+const imageCache = new Map();
+const IMAGE_CACHE_SIZE = 50; // Maximum number of images to cache
+const IMAGE_CACHE_DURATION = 60 * 60 * 1000; // 1 hour cache duration
 
 // Global error handler for debugging
 window.addEventListener('error', function(e) {
@@ -51,6 +56,90 @@ function stripHtml(html) {
     return text.trim();
 }
 
+// Pre-optimize HTML content before sending to server for faster processing
+function preOptimizeHtmlForServer(html) {
+    // Don't process data URLs (already optimized)
+    if (!html || html.length < 1000) {
+        return html;
+    }
+    
+    console.log('Pre-optimizing HTML content before sending to server');
+    
+    try {
+        // Parse HTML to modify it
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        
+        // 1. Remove comments
+        const commentIterator = document.createNodeIterator(
+            doc, NodeFilter.SHOW_COMMENT, null, false
+        );
+        let currentNode;
+        const commentsToRemove = [];
+        while (currentNode = commentIterator.nextNode()) {
+            commentsToRemove.push(currentNode);
+        }
+        commentsToRemove.forEach(comment => {
+            comment.parentNode.removeChild(comment);
+        });
+        
+        // 2. Remove unused attributes that don't affect rendering
+        const allElements = doc.querySelectorAll('*');
+        const attributesToRemove = ['data-', 'aria-', 'role', 'tabindex', 'title'];
+        
+        allElements.forEach(element => {
+            // Skip essential elements
+            if (element.tagName === 'IMG' || element.tagName === 'A') {
+                return;
+            }
+            
+            Array.from(element.attributes).forEach(attr => {
+                const attrName = attr.name.toLowerCase();
+                // Remove data attributes and other non-visual attributes
+                if (attributesToRemove.some(prefix => attrName.startsWith(prefix)) || 
+                    attrName === 'id' || attrName === 'name') {
+                    element.removeAttribute(attrName);
+                }
+            });
+        });
+        
+        // 3. Simplify inline styles that don't affect PDF rendering
+        const elementsWithStyle = doc.querySelectorAll('[style]');
+        elementsWithStyle.forEach(element => {
+            const style = element.getAttribute('style');
+            // Keep only essential styles
+            const essentialStyles = style
+                .split(';')
+                .filter(s => {
+                    const prop = s.split(':')[0]?.trim().toLowerCase();
+                    // Keep only these essential visual properties
+                    return prop && [
+                        'color', 'background', 'font', 'margin', 'padding', 
+                        'border', 'text-align', 'width', 'height', 'display',
+                        'line-height', 'letter-spacing', 'vertical-align'
+                    ].some(p => prop.includes(p));
+                })
+                .join(';');
+                
+            element.setAttribute('style', essentialStyles);
+        });
+        
+        // Convert back to string
+        const serializer = new XMLSerializer();
+        let optimizedHtml = serializer.serializeToString(doc);
+        
+        // Clean up any excessive whitespace
+        optimizedHtml = optimizedHtml.replace(/>\s+</g, '><');
+        
+        console.log(`HTML optimization complete: ${Math.round((html.length - optimizedHtml.length) / html.length * 100)}% size reduction`);
+        
+        return optimizedHtml;
+    } catch (err) {
+        console.warn('Error optimizing HTML, using original:', err);
+        return html;
+    }
+}
+
 // Optimized function to get attachment content with parallel processing
 async function getAttachmentContentOptimized(attachments) {
     if (!attachments || attachments.length === 0) return [];
@@ -90,9 +179,9 @@ async function getAttachmentContentOptimized(attachments) {
         .map(result => result.value);
 }
 
-// Optimized function to convert external images to data URLs with timeout and parallel processing
-async function convertExternalImagesToDataUrlsOptimized(html, timeout = 5000) {
-    console.log('Converting external images to data URLs with 5s timeout');
+// Optimized function to convert external images to data URLs with caching, timeout and parallel processing
+async function convertExternalImagesToDataUrlsOptimized(html, timeout = 2000) {
+    console.log('Converting external images to data URLs with caching and 2s timeout');
     
     const imgRegex = /<img[^>]+src\s*=\s*["']([^"']+)["'][^>]*>/gi;
     const matches = [];
@@ -110,7 +199,21 @@ async function convertExternalImagesToDataUrlsOptimized(html, timeout = 5000) {
     
     console.log(`Found ${matches.length} external images to convert`);
     
+    // Clean up old cache entries
+    const now = Date.now();
+    for (const [key, entry] of imageCache.entries()) {
+        if (now - entry.timestamp > IMAGE_CACHE_DURATION) {
+            imageCache.delete(key);
+        }
+    }
+    
     const imagePromises = matches.map(async ({ fullMatch, url }) => {
+        // Check cache first
+        if (imageCache.has(url)) {
+            console.log(`Using cached image for ${url}`);
+            return { fullMatch, dataURL: imageCache.get(url).dataURL };
+        }
+        
         try {
             const timeoutPromise = new Promise((_, reject) => 
                 setTimeout(() => reject(new Error('Image load timeout')), timeout)
@@ -121,12 +224,29 @@ async function convertExternalImagesToDataUrlsOptimized(html, timeout = 5000) {
                 img.crossOrigin = 'anonymous';
                 img.onload = () => {
                     try {
+                        // Use a smaller canvas size for performance
+                        const maxWidth = 1200; // Reasonable max width for email images
+                        const width = Math.min(img.width, maxWidth);
+                        const scaleFactor = width / img.width;
+                        const height = img.height * scaleFactor;
+                        
                         const canvas = document.createElement('canvas');
                         const ctx = canvas.getContext('2d');
-                        canvas.width = img.width;
-                        canvas.height = img.height;
-                        ctx.drawImage(img, 0, 0);
-                        const dataURL = canvas.toDataURL('image/jpeg', 0.8);
+                        canvas.width = width;
+                        canvas.height = height;
+                        ctx.drawImage(img, 0, 0, width, height);
+                        
+                        // Use lower quality for performance
+                        const dataURL = canvas.toDataURL('image/jpeg', 0.7);
+                        
+                        // Cache the result
+                        if (imageCache.size >= IMAGE_CACHE_SIZE) {
+                            // Remove oldest entry if cache is full
+                            const oldestKey = imageCache.keys().next().value;
+                            imageCache.delete(oldestKey);
+                        }
+                        imageCache.set(url, { dataURL, timestamp: Date.now() });
+                        
                         resolve({ fullMatch, dataURL });
                     } catch (err) {
                         reject(err);
@@ -167,13 +287,21 @@ async function checkServerHealthCached() {
     }
     
     try {
+        // Use AbortController for timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2000); // 2 second timeout
+        
         const response = await fetch('http://localhost:5000/health', {
             method: 'GET',
             mode: 'cors',
             headers: {
                 'Accept': 'application/json'
-            }
+            },
+            signal: controller.signal
         });
+        
+        // Clear the timeout
+        clearTimeout(timeoutId);
         
         const isHealthy = response.ok;
         serverHealthStatus = { healthy: isHealthy, lastCheck: now };
@@ -198,23 +326,39 @@ async function createServerPdf(metaHtml, htmlBody, attachments) {
             throw new Error('PDF server is not available. Please ensure the server is running on localhost:5000');
         }
         
-        // Process attachments and images in parallel
+        // Process attachments and images in parallel with reduced timeout
         const [processedAttachments, convertedHtml] = await Promise.all([
             getAttachmentContentOptimized(attachments),
-            convertExternalImagesToDataUrlsOptimized(htmlBody, 5000)
+            convertExternalImagesToDataUrlsOptimized(htmlBody, 2000) // Reduced timeout to 2 seconds
         ]);
         
         // Combine meta HTML and body HTML into a single HTML document
         const fullHtml = metaHtml + convertedHtml;
         
+        // Pre-optimize HTML content to reduce size
+        const optimizedHtml = preOptimizeHtmlForServer(fullHtml);
+        
+        // Further optimize attachments to reduce payload size
+        const optimizedAttachments = processedAttachments.map(attachment => ({
+            name: attachment.name,
+            contentType: attachment.contentType,
+            content: attachment.content,
+            size: attachment.size
+        }));
+        
         const requestData = {
-            html: fullHtml,
-            attachments: processedAttachments,
+            html: optimizedHtml,
+            attachments: optimizedAttachments,
             mode: 'full',
             extractImages: false
         };
         
         console.log('Sending optimized request to server...');
+        
+        // Use AbortController for timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+        
         const response = await fetch(`${serverUrl}/convert-with-attachments`, {
             method: 'POST',
             mode: 'cors',
@@ -222,8 +366,12 @@ async function createServerPdf(metaHtml, htmlBody, attachments) {
                 'Content-Type': 'application/json',
                 'Accept': 'application/pdf'
             },
-            body: JSON.stringify(requestData)
+            body: JSON.stringify(requestData),
+            signal: controller.signal
         });
+        
+        // Clear the timeout
+        clearTimeout(timeoutId);
         
         if (!response.ok) {
             const errorText = await response.text();
