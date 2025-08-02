@@ -37,7 +37,7 @@
                 <option value="server-pdf" selected>🚀 Server PDF (high-quality, selectable text, best performance)</option>
             </select>
             <div id="pdfEngine-warning" style="font-size:0.95em;color:#b00;margin-top:6px;max-width:420px;">
-                <b>Note:</b> <span id="pdfEngine-warning-text">Server PDF provides the highest quality output with perfect text selection and professional formatting.</span>
+                <b>Note:</b> <span id="pdfEngine-warning-text">Server PDF now mimics Chrome's print-to-PDF behavior with optimized formatting, consistent margins, and print-specific CSS styling.</span>
             </div>
         </div>
         <script>
@@ -54,7 +54,7 @@
                     } else if (engineSel.value === 'html-to-pdfmake') {
                         warning.textContent = 'html-to-pdfmake converts HTML directly to selectable PDF format, preserving tables, lists, and formatting.';
                     } else if (engineSel.value === 'server-pdf') {
-                        warning.textContent = 'Server PDF provides the highest quality output with perfect text selection and professional formatting. Requires local server to be running.';
+                        warning.textContent = 'Server PDF now mimics Chrome\'s print-to-PDF behavior with optimized formatting, consistent margins, and print-specific CSS styling. Requires local server to be running.';
                     }
                 });
             }
@@ -62,12 +62,12 @@
         </script>
         <button id="convertBtn">Convert Email to PDF</button>
         <button id="testBtn" style="margin-left: 10px; background-color: #007acc; color: white; border: none; padding: 8px 16px; cursor: pointer;">Test PDF Engine</button>
-        <span id="version" style="font-size:0.9em;color:#888;">v3.0.12</span>
+        <span id="version" style="font-size:0.9em;color:#888;">v3.0.13</span>
     </div>
     <div id="emailToPdfDiv" style="background:#fff; padding:24px; font-family:Arial, sans-serif; width:100%; max-width:794px; min-height:400px; margin:0 auto; box-sizing:border-box; display:none;"></div>
     <script>
       // You can update this version string in JS for easy control
-      window.addinVersion = 'v3.0.12';
+      window.addinVersion = 'v3.0.13';
       document.querySelectorAll('#version').forEach(el => el.textContent = window.addinVersion);
     </script>
     <script src="taskpane.js?v=2.1.0"></script>

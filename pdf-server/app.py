@@ -63,25 +63,108 @@ def health_check():
     })
 
 def convert_html_to_pdf_with_gotenberg(html_content):
-    """Convert HTML to PDF using Gotenberg's Chromium route"""
+    """Convert HTML to PDF using Gotenberg's Chromium route with print-optimized settings"""
     try:
         logger.info(f"Converting HTML email to PDF using Gotenberg ({len(html_content)} characters)")
         
-        # Prepare the HTML file for Gotenberg
+        # Enhance HTML content with print-specific CSS and settings
+        enhanced_html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                @media print {{
+                    body {{ 
+                        font-family: Arial, sans-serif;
+                        font-size: 12pt;
+                        line-height: 1.4;
+                        color: #000;
+                        background: white;
+                        margin: 0;
+                        padding: 20px;
+                    }}
+                    .no-print {{ display: none !important; }}
+                    img {{ max-width: 100%; height: auto; }}
+                    table {{ border-collapse: collapse; width: 100%; }}
+                    th, td {{ border: 1px solid #ddd; padding: 8px; }}
+                    h1, h2, h3, h4, h5, h6 {{ 
+                        color: #000; 
+                        page-break-after: avoid;
+                        margin-top: 1em;
+                        margin-bottom: 0.5em;
+                    }}
+                    p {{ margin: 0.5em 0; }}
+                    blockquote {{ 
+                        margin: 1em 0; 
+                        padding-left: 1em; 
+                        border-left: 3px solid #ccc; 
+                    }}
+                }}
+                
+                /* Apply print styles to screen as well for consistency */
+                body {{ 
+                    font-family: Arial, sans-serif;
+                    font-size: 12pt;
+                    line-height: 1.4;
+                    color: #000;
+                    background: white;
+                    margin: 0;
+                    padding: 20px;
+                    max-width: 8.5in;
+                }}
+                img {{ max-width: 100%; height: auto; }}
+                table {{ border-collapse: collapse; width: 100%; }}
+                th, td {{ border: 1px solid #ddd; padding: 8px; }}
+                h1, h2, h3, h4, h5, h6 {{ 
+                    color: #000; 
+                    margin-top: 1em;
+                    margin-bottom: 0.5em;
+                }}
+                p {{ margin: 0.5em 0; }}
+                blockquote {{ 
+                    margin: 1em 0; 
+                    padding-left: 1em; 
+                    border-left: 3px solid #ccc; 
+                }}
+            </style>
+        </head>
+        <body>
+            {html_content}
+        </body>
+        </html>
+        """
+        
+        # Prepare the HTML file for Gotenberg - must be named 'index.html'
         files = {
-            'files': ('email.html', html_content, 'text/html')
+            'files': ('index.html', enhanced_html, 'text/html')
+        }
+        
+        # Form data for print-like settings
+        data = {
+            'paperWidth': '8.5',      # US Letter width in inches
+            'paperHeight': '11',      # US Letter height in inches
+            'marginTop': '0.5',       # Top margin in inches
+            'marginBottom': '0.5',    # Bottom margin in inches
+            'marginLeft': '0.5',      # Left margin in inches
+            'marginRight': '0.5',     # Right margin in inches
+            'printBackground': 'true', # Include background colors/images
+            'preferCSSPageSize': 'false', # Use our paper size settings
+            'emulateMediaType': 'print'   # Force print media type
         }
         
         # Send request to Gotenberg Chromium route for HTML conversion
         response = requests.post(
             f"{GOTENBERG_URL}/forms/chromium/convert/html",
             files=files,
+            data=data,
             timeout=30
         )
         
         if response.status_code == 200:
             pdf_size = len(response.content)
-            logger.info(f"✓ Successfully converted HTML email to PDF ({pdf_size} bytes)")
+            logger.info(f"✓ Successfully converted HTML email to PDF with print settings ({pdf_size} bytes)")
             return response.content
         else:
             logger.error(f"✗ Gotenberg HTML conversion failed: {response.status_code}")
