@@ -72,7 +72,12 @@ function cleanTextForPdfLib(text) {
     cleanText = cleanText.replace(/[\u2026]/g, '...'); // Ellipsis
     cleanText = cleanText.replace(/[\u2013\u2014]/g, '-'); // En/em dash
     
-    // Remove characters that WinAnsi can't encode
+    // Remove emojis and other problematic Unicode characters
+    cleanText = cleanText.replace(/[\u1F000-\u1FFFF]/g, ''); // Remove emojis
+    cleanText = cleanText.replace(/[\u2600-\u27BF]/g, ''); // Remove misc symbols
+    cleanText = cleanText.replace(/[\uFE00-\uFE0F]/g, ''); // Remove variation selectors
+    
+    // Remove characters that WinAnsi can't encode (keep only basic ASCII + newlines/tabs)
     cleanText = cleanText.replace(/[^\x20-\x7E\n\r\t]/g, '?');
     
     // Replace multiple whitespace with single spaces
@@ -333,7 +338,7 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
         
         // Draw EMAIL DETAILS header box
         if (emailDetails.length > 0) {
-            drawHeaderBox('📧 EMAIL DETAILS', emailDetails, colors.lightBlue);
+            drawHeaderBox('EMAIL DETAILS', emailDetails, colors.lightBlue);
         }
         
         // Add separator with some visual flair
@@ -420,17 +425,17 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
                                 borderWidth: 2,
                             });
                             
-                            // Add Teams icon representation
-                            currentPage.drawText('📞', {
+                            // Add Teams icon representation (using text instead of emoji)
+                            currentPage.drawText('[TEAMS]', {
                                 x: margin + 15,
                                 y: y - 25,
-                                size: 16,
-                                font: helvetica,
+                                size: 12,
+                                font: helveticaBold,
                                 color: colors.darkBlue,
                             });
                             
                             currentPage.drawText('Join conversation', {
-                                x: margin + 45,
+                                x: margin + 75,
                                 y: y - 20,
                                 size: 12,
                                 font: helveticaBold,
@@ -438,7 +443,7 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
                             });
                             
                             currentPage.drawText('teams.microsoft.com', {
-                                x: margin + 45,
+                                x: margin + 75,
                                 y: y - 35,
                                 size: 10,
                                 font: helvetica,
@@ -614,7 +619,7 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
         };
         
         // Add content header
-        drawHeaderBox('📄 MESSAGE CONTENT', [], colors.lightGray);
+        drawHeaderBox('MESSAGE CONTENT', [], colors.lightGray);
         
         // Start processing from body
         if (bodyDoc.body && bodyDoc.body.children.length > 0) {
