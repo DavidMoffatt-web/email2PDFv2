@@ -1373,7 +1373,7 @@ async function createServerPdf(metaHtml, htmlBody, attachments) {
         }
         
         // Combine metadata and content into a single HTML document
-        const fullHtml = `
+        let fullHtml = `
         <!DOCTYPE html>
         <html lang="en">
         <head>
@@ -1418,6 +1418,59 @@ async function createServerPdf(metaHtml, htmlBody, attachments) {
                     color: #007acc;
                     font-size: 16px;
                     margin: 0 0 15px 0;
+                }
+                
+                .attachments-section {
+                    margin-top: 30px;
+                    padding: 15px;
+                    background-color: #f0f8ff;
+                    border-left: 4px solid #007acc;
+                    border-radius: 4px;
+                }
+                
+                .attachments-section h3 {
+                    margin: 0 0 15px 0;
+                    color: #007acc;
+                    font-size: 14px;
+                }
+                
+                .attachment-item {
+                    padding: 10px;
+                    margin: 8px 0;
+                    background-color: white;
+                    border: 1px solid #ddd;
+                    border-radius: 4px;
+                    display: flex;
+                    align-items: center;
+                }
+                
+                .attachment-icon {
+                    width: 24px;
+                    height: 24px;
+                    margin-right: 10px;
+                    background-color: #007acc;
+                    border-radius: 3px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    color: white;
+                    font-weight: bold;
+                    font-size: 12px;
+                }
+                
+                .attachment-info {
+                    flex-grow: 1;
+                }
+                
+                .attachment-name {
+                    font-weight: bold;
+                    color: #333;
+                }
+                
+                .attachment-details {
+                    font-size: 12px;
+                    color: #666;
+                    margin-top: 2px;
                 }
                 
                 img {
@@ -1487,7 +1540,41 @@ async function createServerPdf(metaHtml, htmlBody, attachments) {
             <div class="email-content">
                 <h2>Message Content</h2>
                 ${htmlBody}
-            </div>
+            </div>`;
+        
+        // Add attachments section if attachments exist
+        if (attachments && attachments.length > 0) {
+            console.log(`Adding ${attachments.length} attachments to PDF`);
+            
+            fullHtml += `
+            <div class="attachments-section">
+                <h3>📎 Attachments (${attachments.length})</h3>`;
+            
+            for (let i = 0; i < attachments.length; i++) {
+                const attachment = attachments[i];
+                const fileExtension = attachment.name.split('.').pop()?.toUpperCase() || 'FILE';
+                const fileIcon = fileExtension.substring(0, 3);
+                const fileSizeKB = Math.round(attachment.size / 1024);
+                
+                fullHtml += `
+                <div class="attachment-item">
+                    <div class="attachment-icon">${fileIcon}</div>
+                    <div class="attachment-info">
+                        <div class="attachment-name">${attachment.name}</div>
+                        <div class="attachment-details">
+                            Type: ${attachment.contentType || 'Unknown'} | 
+                            Size: ${fileSizeKB} KB | 
+                            ID: ${attachment.id}
+                        </div>
+                    </div>
+                </div>`;
+            }
+            
+            fullHtml += `
+            </div>`;
+        }
+        
+        fullHtml += `
         </body>
         </html>`;
         
@@ -1554,11 +1641,25 @@ async function createServerPdf(metaHtml, htmlBody, attachments) {
     }
 }
 
-async function createIndividualPdfs(htmlContent, attachments, imgSources, includeImages, metaHtml) {
-    console.log('Creating individual PDFs');
+async function createIndividualPdfs(htmlContent, attachments, imgSources, includeImages, metaHtml, engine = 'html2pdf') {
+    console.log('Creating individual PDFs with engine:', engine);
+    
+    // Helper function to create PDF with the specified engine
+    const createPdfWithEngine = async (content, metaContent = null, attachmentData = null) => {
+        if (engine === 'pdf-lib') {
+            await createPdfLibTextPdf(metaContent || metaHtml, content, attachmentData);
+        } else if (engine === 'html-to-pdfmake') {
+            await createHtmlToPdfmakePdf(metaContent || metaHtml, content, attachmentData);
+        } else if (engine === 'server-pdf') {
+            await createServerPdf(metaContent || metaHtml, content, attachmentData);
+        } else {
+            // Default to html2pdf
+            await createPdf(content, attachmentData, null);
+        }
+    };
     
     // Create main email PDF
-    await createPdf(htmlContent, null, null);
+    await createPdfWithEngine(htmlContent, metaHtml, null);
     
     // If we have images and includeImages is true, create PDFs for each image
     if (includeImages && imgSources && imgSources.length) {
@@ -1576,9 +1677,54 @@ async function createIndividualPdfs(htmlContent, attachments, imgSources, includ
                 const imgWithMeta = document.createElement('div');
                 imgWithMeta.innerHTML = metaHtml + imgContainer.outerHTML;
                 
-                await createPdf(imgWithMeta.outerHTML, null, null);
+                await createPdfWithEngine(imgWithMeta.outerHTML, metaHtml, null);
             } catch (err) {
                 console.error(`Error creating PDF for image ${i}:`, err);
+            }
+        }
+    }
+    
+    // Process attachments if available
+    if (attachments && attachments.length > 0) {
+        console.log(`Processing ${attachments.length} attachments`);
+        
+        for (let i = 0; i < attachments.length; i++) {
+            const attachment = attachments[i];
+            try {
+                console.log(`Processing attachment: ${attachment.name}`);
+                
+                // Get attachment content
+                Office.context.mailbox.item.getAttachmentContentAsync(
+                    attachment.id,
+                    { asyncContext: { attachment, engine } },
+                    async function(result) {
+                        if (result.status === Office.AsyncResultStatus.Succeeded) {
+                            const attachmentContent = result.value.content;
+                            const attachmentName = result.asyncContext.attachment.name;
+                            const selectedEngine = result.asyncContext.engine;
+                            
+                            // Create a simple HTML representation of the attachment
+                            const attachmentHtml = `
+                                <div style="padding: 20px; font-family: Arial, sans-serif;">
+                                    <h2>Attachment: ${attachmentName}</h2>
+                                    <p><strong>Type:</strong> ${result.asyncContext.attachment.contentType}</p>
+                                    <p><strong>Size:</strong> ${result.asyncContext.attachment.size} bytes</p>
+                                    <div style="margin-top: 20px; padding: 15px; background-color: #f5f5f5; border-radius: 4px;">
+                                        <p><em>Attachment content processed separately</em></p>
+                                        <p>Original file: ${attachmentName}</p>
+                                    </div>
+                                </div>
+                            `;
+                            
+                            // Create PDF for this attachment using the selected engine
+                            await createPdfWithEngine(attachmentHtml, metaHtml, null);
+                        } else {
+                            console.error('Failed to get attachment content:', result.error);
+                        }
+                    }
+                );
+            } catch (err) {
+                console.error(`Error processing attachment ${attachment.name}:`, err);
             }
         }
     }
@@ -1711,19 +1857,32 @@ function initializeApp() {
                         }
 
                         try {
-                            if (engine === 'pdf-lib') {
-                                await createPdfLibTextPdf(metaHtml, htmlBody, attachments);
-                            } else if (engine === 'html-to-pdfmake') {
-                                await createHtmlToPdfmakePdf(metaHtml, htmlBody, attachments);
-                            } else if (engine === 'server-pdf') {
-                                await createServerPdf(metaHtml, htmlBody, attachments);
-                            } else {
-                                if (mode === 'full') {
+                            // Handle different PDF modes and engines
+                            if (mode === 'full') {
+                                // Full PDF mode: merge email + attachments
+                                if (engine === 'pdf-lib') {
+                                    await createPdfLibTextPdf(metaHtml, htmlBody, attachments);
+                                } else if (engine === 'html-to-pdfmake') {
+                                    await createHtmlToPdfmakePdf(metaHtml, htmlBody, attachments);
+                                } else if (engine === 'server-pdf') {
+                                    await createServerPdf(metaHtml, htmlBody, attachments);
+                                } else {
                                     await createPdf(metaHtml + htmlBody, attachments, imgSources);
-                                } else if (mode === 'individual') {
-                                    await createIndividualPdfs(metaHtml + htmlBody, attachments, imgSources, false, metaHtml);
-                                } else if (mode === 'images') {
-                                    await createIndividualPdfs(metaHtml + htmlBody, attachments, imgSources, true, metaHtml);
+                                }
+                            } else if (mode === 'individual') {
+                                // Individual PDFs mode: separate PDF for email and each attachment
+                                await createIndividualPdfs(metaHtml + htmlBody, attachments, imgSources, false, metaHtml, engine);
+                            } else if (mode === 'images') {
+                                // Images mode: separate PDF for attachments + each embedded image
+                                await createIndividualPdfs(metaHtml + htmlBody, attachments, imgSources, true, metaHtml, engine);
+                            } else {
+                                // Default to full mode
+                                if (engine === 'pdf-lib') {
+                                    await createPdfLibTextPdf(metaHtml, htmlBody, attachments);
+                                } else if (engine === 'html-to-pdfmake') {
+                                    await createHtmlToPdfmakePdf(metaHtml, htmlBody, attachments);
+                                } else if (engine === 'server-pdf') {
+                                    await createServerPdf(metaHtml, htmlBody, attachments);
                                 } else {
                                     await createPdf(metaHtml + htmlBody, attachments, imgSources);
                                 }
