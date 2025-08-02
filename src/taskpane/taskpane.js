@@ -36,6 +36,7 @@ function stripHtml(html) {
     text = text.replace(/&gt;/g, '>');
     text = text.replace(/&quot;/g, '"');
     text = text.replace(/&#39;/g, "'");
+    text = text.replace(/&apos;/g, "'");
     
     // Replace various Unicode space characters with regular spaces
     text = text.replace(/[\u00A0\u1680\u2000-\u200B\u202F\u205F\u3000]/g, ' '); // Various space chars
@@ -45,8 +46,13 @@ function stripHtml(html) {
     text = text.replace(/[\u2026]/g, '...'); // Ellipsis to three dots
     text = text.replace(/[\u2013\u2014]/g, '-'); // En dash and em dash to regular dash
     
-    // Remove or replace characters that WinAnsi can't encode (keep only ASCII + basic Latin)
-    text = text.replace(/[^\x20-\x7E\n\r\t]/g, '?'); // Replace non-ASCII with ?
+    // Remove emojis and problematic symbols, but be more conservative with other characters
+    text = text.replace(/[\u1F000-\u1FFFF]/g, ''); // Remove emojis
+    text = text.replace(/[\u2600-\u27BF]/g, ''); // Remove misc symbols
+    text = text.replace(/[\uFE00-\uFE0F]/g, ''); // Remove variation selectors
+    
+    // Only remove control characters that are truly problematic
+    text = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
     
     // Replace multiple whitespace with single spaces
     text = text.replace(/\s+/g, ' ');
@@ -61,8 +67,32 @@ function stripHtml(html) {
 function cleanTextForPdfLib(text) {
     if (!text) return '';
     
-    // Apply all the same cleaning as stripHtml but for plain text
     let cleanText = text;
+    
+    // Fix common URL encoding issues that might appear in email content
+    try {
+        // Only decode if it looks like URL encoding (contains %)
+        if (cleanText.includes('%')) {
+            // First try to decode URL encoding
+            cleanText = decodeURIComponent(cleanText);
+        }
+    } catch (e) {
+        // If decoding fails, continue with original text
+    }
+    
+    // Decode HTML entities properly
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = cleanText;
+    cleanText = tempDiv.textContent || tempDiv.innerText || cleanText;
+    
+    // Fix common character encoding issues that appear in email
+    cleanText = cleanText.replace(/&nbsp;/g, ' ');
+    cleanText = cleanText.replace(/&amp;/g, '&');
+    cleanText = cleanText.replace(/&lt;/g, '<');
+    cleanText = cleanText.replace(/&gt;/g, '>');
+    cleanText = cleanText.replace(/&quot;/g, '"');
+    cleanText = cleanText.replace(/&#39;/g, "'");
+    cleanText = cleanText.replace(/&apos;/g, "'");
     
     // Replace various Unicode space characters with regular spaces
     cleanText = cleanText.replace(/[\u00A0\u1680\u2000-\u200B\u202F\u205F\u3000]/g, ' ');
@@ -72,16 +102,24 @@ function cleanTextForPdfLib(text) {
     cleanText = cleanText.replace(/[\u2026]/g, '...'); // Ellipsis
     cleanText = cleanText.replace(/[\u2013\u2014]/g, '-'); // En/em dash
     
-    // Remove emojis and other problematic Unicode characters
+    // Remove only emojis and symbols, but keep extended Latin characters
     cleanText = cleanText.replace(/[\u1F000-\u1FFFF]/g, ''); // Remove emojis
     cleanText = cleanText.replace(/[\u2600-\u27BF]/g, ''); // Remove misc symbols
     cleanText = cleanText.replace(/[\uFE00-\uFE0F]/g, ''); // Remove variation selectors
     
-    // Remove characters that WinAnsi can't encode (keep only basic ASCII + newlines/tabs)
-    cleanText = cleanText.replace(/[^\x20-\x7E\n\r\t]/g, '?');
+    // More conservative character filtering - keep more text intact
+    // Only remove really problematic characters, keep basic Latin and extended
+    cleanText = cleanText.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, ''); // Remove control chars
     
-    // Replace multiple whitespace with single spaces
-    cleanText = cleanText.replace(/\s+/g, ' ');
+    // Replace sequences of weird characters that look like encoding artifacts
+    cleanText = cleanText.replace(/[%]{2,}/g, ' '); // Multiple % signs
+    cleanText = cleanText.replace(/[.]{5,}/g, '...'); // Too many dots
+    cleanText = cleanText.replace(/[-]{5,}/g, '---'); // Too many dashes
+    cleanText = cleanText.replace(/[,]{2,}/g, ','); // Multiple commas
+    
+    // Replace multiple whitespace with single spaces, but preserve line breaks
+    cleanText = cleanText.replace(/[ \t]+/g, ' ');
+    cleanText = cleanText.replace(/\n\s*\n/g, '\n\n'); // Preserve paragraph breaks
     
     return cleanText.trim();
 }
@@ -356,6 +394,40 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
         const bodyDoc = new DOMParser().parseFromString(htmlBody, 'text/html');
         
         // Enhanced element processing with better visual hierarchy
+        // Helper function to safely extract text from an element
+        const extractTextContent = (element) => {
+            if (!element) return '';
+            
+            // Try different methods to get clean text
+            let text = '';
+            
+            // First try innerText which handles line breaks better
+            if (element.innerText) {
+                text = element.innerText;
+            } else if (element.textContent) {
+                text = element.textContent;
+            } else {
+                // Fallback: manually extract text from all text nodes
+                const walker = document.createTreeWalker(
+                    element,
+                    NodeFilter.SHOW_TEXT,
+                    null,
+                    false
+                );
+                
+                const textParts = [];
+                let node;
+                while (node = walker.nextNode()) {
+                    if (node.nodeValue && node.nodeValue.trim()) {
+                        textParts.push(node.nodeValue);
+                    }
+                }
+                text = textParts.join(' ');
+            }
+            
+            return cleanTextForPdfLib(text);
+        };
+
         const processElement = (element, defaultFont = helvetica, defaultSize = 11, defaultColor = colors.black, depth = 0) => {
             const tagName = element.tagName?.toLowerCase();
             
@@ -368,7 +440,7 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
                 case 'h6':
                     y -= 15; // More space before heading
                     const headingSize = tagName === 'h1' ? 18 : tagName === 'h2' ? 16 : tagName === 'h3' ? 14 : 12;
-                    const headingText = cleanTextForPdfLib(element.textContent || element.innerText || '');
+                    const headingText = extractTextContent(element);
                     if (headingText) {
                         // Add background for major headings
                         if (tagName === 'h1' || tagName === 'h2') {
@@ -391,7 +463,7 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
                     break;
                     
                 case 'p':
-                    const pText = cleanTextForPdfLib(element.textContent || element.innerText || '');
+                    const pText = extractTextContent(element);
                     if (pText.trim()) {
                         // Check if paragraph contains links
                         if (pText.includes('http')) {
@@ -406,7 +478,7 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
                     
                 case 'div':
                     // Special handling for Teams-style cards or containers
-                    const divText = cleanTextForPdfLib(element.textContent || element.innerText || '');
+                    const divText = extractTextContent(element);
                     if (divText.trim()) {
                         // Check if this looks like a Teams conversation card
                         if (divText.includes('Join conversation') || divText.includes('teams.microsoft.com')) {
@@ -460,14 +532,14 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
                     
                 case 'strong':
                 case 'b':
-                    const strongText = cleanTextForPdfLib(element.textContent || element.innerText || '');
+                    const strongText = extractTextContent(element);
                     if (strongText) {
                         drawWrappedText(strongText, helveticaBold, defaultSize, defaultColor);
                     }
                     break;
                     
                 case 'a':
-                    const linkText = cleanTextForPdfLib(element.textContent || element.innerText || '');
+                    const linkText = extractTextContent(element);
                     const href = element.getAttribute('href') || '';
                     if (linkText) {
                         addPageIfNeeded(defaultSize * 1.5);
@@ -501,7 +573,7 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
                     const listItems = element.querySelectorAll('li');
                     listItems.forEach((li, index) => {
                         const bullet = tagName === 'ul' ? '• ' : `${index + 1}. `;
-                        const liText = cleanTextForPdfLib(li.textContent || li.innerText || '');
+                        const liText = extractTextContent(li);
                         if (liText.trim()) {
                             addPageIfNeeded(16);
                             
@@ -545,7 +617,7 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
                     break;
                     
                 case 'blockquote':
-                    const quoteText = cleanTextForPdfLib(element.textContent || element.innerText || '');
+                    const quoteText = extractTextContent(element);
                     if (quoteText) {
                         y -= 10;
                         const quoteLines = splitTextIntoLines(quoteText, helvetica, 11, contentWidth - 40);
@@ -591,7 +663,7 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
                     
                 default:
                     // For other elements, extract text with better formatting
-                    const text = cleanTextForPdfLib(element.textContent || element.innerText || '');
+                    const text = extractTextContent(element);
                     if (text.trim() && !element.querySelector('p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, div')) {
                         if (text.includes('http')) {
                             addPageIfNeeded(defaultSize * 1.5);
