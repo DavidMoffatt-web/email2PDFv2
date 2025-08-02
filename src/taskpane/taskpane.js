@@ -21,16 +21,13 @@ window.addEventListener('unhandledrejection', function(e) {
     console.error('Unhandled promise rejection:', e.reason);
 });
 
-// Helper function to strip HTML tags
+// Helper function to strip HTML tags and clean text for pdf-lib
 function stripHtml(html) {
     const temp = document.createElement('div');
     temp.innerHTML = html;
     
     // Get text content and clean it up
     let text = temp.textContent || temp.innerText || '';
-    
-    // Replace multiple whitespace with single spaces
-    text = text.replace(/\s+/g, ' ');
     
     // Replace HTML entities and special characters that might cause encoding issues
     text = text.replace(/&nbsp;/g, ' ');
@@ -40,13 +37,48 @@ function stripHtml(html) {
     text = text.replace(/&quot;/g, '"');
     text = text.replace(/&#39;/g, "'");
     
-    // Remove or replace characters that WinAnsi can't encode
+    // Replace various Unicode space characters with regular spaces
+    text = text.replace(/[\u00A0\u1680\u2000-\u200B\u202F\u205F\u3000]/g, ' '); // Various space chars
+    text = text.replace(/[\u2010-\u2015]/g, '-'); // Various dashes to regular dash
+    text = text.replace(/[\u2018\u2019]/g, "'"); // Smart single quotes to regular
+    text = text.replace(/[\u201C\u201D]/g, '"'); // Smart double quotes to regular
+    text = text.replace(/[\u2026]/g, '...'); // Ellipsis to three dots
+    text = text.replace(/[\u2013\u2014]/g, '-'); // En dash and em dash to regular dash
+    
+    // Remove or replace characters that WinAnsi can't encode (keep only ASCII + basic Latin)
     text = text.replace(/[^\x20-\x7E\n\r\t]/g, '?'); // Replace non-ASCII with ?
+    
+    // Replace multiple whitespace with single spaces
+    text = text.replace(/\s+/g, ' ');
     
     // Normalize line breaks
     text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     
     return text.trim();
+}
+
+// Helper function to clean text specifically for pdf-lib rendering
+function cleanTextForPdfLib(text) {
+    if (!text) return '';
+    
+    // Apply all the same cleaning as stripHtml but for plain text
+    let cleanText = text;
+    
+    // Replace various Unicode space characters with regular spaces
+    cleanText = cleanText.replace(/[\u00A0\u1680\u2000-\u200B\u202F\u205F\u3000]/g, ' ');
+    cleanText = cleanText.replace(/[\u2010-\u2015]/g, '-'); // Various dashes
+    cleanText = cleanText.replace(/[\u2018\u2019]/g, "'"); // Smart quotes
+    cleanText = cleanText.replace(/[\u201C\u201D]/g, '"'); // Smart double quotes
+    cleanText = cleanText.replace(/[\u2026]/g, '...'); // Ellipsis
+    cleanText = cleanText.replace(/[\u2013\u2014]/g, '-'); // En/em dash
+    
+    // Remove characters that WinAnsi can't encode
+    cleanText = cleanText.replace(/[^\x20-\x7E\n\r\t]/g, '?');
+    
+    // Replace multiple whitespace with single spaces
+    cleanText = cleanText.replace(/\s+/g, ' ');
+    
+    return cleanText.trim();
 }
 
 // Helper function to split text into lines
@@ -166,13 +198,17 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
         
         // Function to draw text with wrapping
         const drawWrappedText = (text, font, fontSize, color = rgb(0, 0, 0), lineSpacing = 1.2) => {
-            const lines = splitTextIntoLines(text, font, fontSize, contentWidth);
+            // Clean the text before processing
+            const cleanText = cleanTextForPdfLib(text);
+            const lines = splitTextIntoLines(cleanText, font, fontSize, contentWidth);
             const lineHeight = fontSize * lineSpacing;
             
             for (const line of lines) {
                 addPageIfNeeded(lineHeight);
                 if (line.trim()) {
-                    currentPage.drawText(line, {
+                    // Double-check each line before drawing
+                    const cleanLine = cleanTextForPdfLib(line);
+                    currentPage.drawText(cleanLine, {
                         x: margin,
                         y,
                         size: fontSize,
@@ -274,13 +310,15 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
                 case 'h6':
                     y -= 10; // Space before heading
                     const headingSize = tagName === 'h1' ? 16 : tagName === 'h2' ? 14 : 12;
-                    const headingText = element.textContent || element.innerText || '';
-                    drawWrappedText(headingText, helveticaBold, headingSize, rgb(0.1, 0.1, 0.1));
-                    y -= 5; // Space after heading
+                    const headingText = cleanTextForPdfLib(element.textContent || element.innerText || '');
+                    if (headingText) {
+                        drawWrappedText(headingText, helveticaBold, headingSize, rgb(0.1, 0.1, 0.1));
+                        y -= 5; // Space after heading
+                    }
                     break;
                     
                 case 'p':
-                    const pText = element.textContent || element.innerText || '';
+                    const pText = cleanTextForPdfLib(element.textContent || element.innerText || '');
                     if (pText.trim()) {
                         drawWrappedText(pText, defaultFont, defaultSize, defaultColor);
                         y -= 10; // Paragraph spacing
@@ -289,42 +327,47 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
                     
                 case 'strong':
                 case 'b':
-                    const strongText = element.textContent || element.innerText || '';
-                    drawWrappedText(strongText, helveticaBold, defaultSize, defaultColor);
+                    const strongText = cleanTextForPdfLib(element.textContent || element.innerText || '');
+                    if (strongText) {
+                        drawWrappedText(strongText, helveticaBold, defaultSize, defaultColor);
+                    }
                     break;
                     
                 case 'code':
                 case 'pre':
-                    const codeText = element.textContent || element.innerText || '';
-                    y -= 5;
-                    // Code background (light gray rectangle)
-                    const codeLines = splitTextIntoLines(codeText, courier, 10, contentWidth - 20);
-                    const codeHeight = codeLines.length * 12 + 10;
-                    addPageIfNeeded(codeHeight);
-                    
-                    currentPage.drawRectangle({
-                        x: margin,
-                        y: y - codeHeight + 5,
-                        width: contentWidth,
-                        height: codeHeight,
-                        color: rgb(0.95, 0.95, 0.95),
-                    });
-                    
-                    // Draw code text
-                    for (const line of codeLines) {
-                        addPageIfNeeded(12);
-                        if (line.trim()) {
-                            currentPage.drawText(line, {
-                                x: margin + 10,
-                                y,
-                                size: 10,
-                                font: courier,
-                                color: rgb(0.2, 0.2, 0.2),
-                            });
+                    const codeText = cleanTextForPdfLib(element.textContent || element.innerText || '');
+                    if (codeText) {
+                        y -= 5;
+                        // Code background (light gray rectangle)
+                        const codeLines = splitTextIntoLines(codeText, courier, 10, contentWidth - 20);
+                        const codeHeight = codeLines.length * 12 + 10;
+                        addPageIfNeeded(codeHeight);
+                        
+                        currentPage.drawRectangle({
+                            x: margin,
+                            y: y - codeHeight + 5,
+                            width: contentWidth,
+                            height: codeHeight,
+                            color: rgb(0.95, 0.95, 0.95),
+                        });
+                        
+                        // Draw code text
+                        for (const line of codeLines) {
+                            addPageIfNeeded(12);
+                            if (line.trim()) {
+                                const cleanCodeLine = cleanTextForPdfLib(line);
+                                currentPage.drawText(cleanCodeLine, {
+                                    x: margin + 10,
+                                    y,
+                                    size: 10,
+                                    font: courier,
+                                    color: rgb(0.2, 0.2, 0.2),
+                                });
+                            }
+                            y -= 12;
                         }
-                        y -= 12;
+                        y -= 10;
                     }
-                    y -= 10;
                     break;
                     
                 case 'ul':
@@ -332,7 +375,7 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
                     const listItems = element.querySelectorAll('li');
                     listItems.forEach((li, index) => {
                         const bullet = tagName === 'ul' ? '• ' : `${index + 1}. `;
-                        const liText = li.textContent || li.innerText || '';
+                        const liText = cleanTextForPdfLib(li.textContent || li.innerText || '');
                         if (liText.trim()) {
                             addPageIfNeeded(15);
                             // Draw bullet/number
@@ -350,7 +393,8 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
                             
                             for (let i = 0; i < itemLines.length; i++) {
                                 if (i > 0) addPageIfNeeded(15);
-                                currentPage.drawText(itemLines[i], {
+                                const cleanItemLine = cleanTextForPdfLib(itemLines[i]);
+                                currentPage.drawText(cleanItemLine, {
                                     x: margin + 10 + bulletWidth,
                                     y,
                                     size: defaultSize,
@@ -366,39 +410,42 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
                     break;
                     
                 case 'blockquote':
-                    y -= 5;
-                    const quoteText = element.textContent || element.innerText || '';
-                    // Draw quote bar
-                    addPageIfNeeded(20);
-                    currentPage.drawRectangle({
-                        x: margin,
-                        y: y - 20,
-                        width: 3,
-                        height: 20,
-                        color: rgb(0.6, 0.6, 0.6),
-                    });
-                    
-                    // Draw quote text with indentation
-                    const quoteLines = splitTextIntoLines(quoteText, helvetica, 11, contentWidth - 30);
-                    for (const line of quoteLines) {
-                        addPageIfNeeded(15);
-                        if (line.trim()) {
-                            currentPage.drawText(line, {
-                                x: margin + 20,
-                                y,
-                                size: 11,
-                                font: helvetica,
-                                color: rgb(0.4, 0.4, 0.4),
-                            });
+                    const quoteText = cleanTextForPdfLib(element.textContent || element.innerText || '');
+                    if (quoteText) {
+                        y -= 5;
+                        // Draw quote bar
+                        addPageIfNeeded(20);
+                        currentPage.drawRectangle({
+                            x: margin,
+                            y: y - 20,
+                            width: 3,
+                            height: 20,
+                            color: rgb(0.6, 0.6, 0.6),
+                        });
+                        
+                        // Draw quote text with indentation
+                        const quoteLines = splitTextIntoLines(quoteText, helvetica, 11, contentWidth - 30);
+                        for (const line of quoteLines) {
+                            addPageIfNeeded(15);
+                            if (line.trim()) {
+                                const cleanQuoteLine = cleanTextForPdfLib(line);
+                                currentPage.drawText(cleanQuoteLine, {
+                                    x: margin + 20,
+                                    y,
+                                    size: 11,
+                                    font: helvetica,
+                                    color: rgb(0.4, 0.4, 0.4),
+                                });
+                            }
+                            y -= 15;
                         }
-                        y -= 15;
+                        y -= 10;
                     }
-                    y -= 10;
                     break;
                     
                 default:
                     // For other elements, just extract text
-                    const text = element.textContent || element.innerText || '';
+                    const text = cleanTextForPdfLib(element.textContent || element.innerText || '');
                     if (text.trim() && !element.querySelector('p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote')) {
                         drawWrappedText(text, defaultFont, defaultSize, defaultColor);
                         y -= 5;

@@ -27,10 +27,10 @@
             <label for="pdfEngine"><b>PDF Engine:</b></label>
             <select id="pdfEngine">
                 <option value="html2pdf">html2pdf (best visual match, not selectable text)</option>
-                <option value="pdf-lib">pdf-lib (selectable text, basic formatting only)</option>
+                <option value="pdf-lib">pdf-lib (selectable text, enhanced formatting)</option>
             </select>
             <div id="pdfEngine-warning" style="font-size:0.95em;color:#b00;margin-top:6px;max-width:420px;">
-                <b>Note:</b> <span id="pdfEngine-warning-text">html2pdf produces visually accurate PDFs, but text is not selectable. pdf-lib produces selectable text, but formatting is very basic.</span>
+                <b>Note:</b> <span id="pdfEngine-warning-text">html2pdf produces visually accurate PDFs, but text is not selectable. pdf-lib produces selectable text with enhanced formatting.</span>
             </div>
         </div>
         <script>
@@ -43,19 +43,19 @@
                     if (engineSel.value === 'html2pdf') {
                         warning.textContent = 'html2pdf produces visually accurate PDFs, but text is not selectable.';
                     } else {
-                        warning.textContent = 'pdf-lib produces selectable text, but formatting is very basic.';
+                        warning.textContent = 'pdf-lib produces selectable text with enhanced formatting including headings, lists, and proper spacing.';
                     }
                 });
             }
         });
         </script>
         <button id="convertBtn">Convert Email to PDF</button>
-        <span id="version" style="font-size:0.9em;color:#888;">v1.5.14</span>
+        <span id="version" style="font-size:0.9em;color:#888;">v1.5.15</span>
     </div>
     <div id="emailToPdfDiv" style="background:#fff; padding:24px; font-family:Arial, sans-serif; width:100%; max-width:794px; min-height:400px; margin:0 auto; box-sizing:border-box; display:none;"></div>
     <script>
       // You can update this version string in JS for easy control
-      window.addinVersion = 'v1.5.14';
+      window.addinVersion = 'v1.5.15';
       document.querySelectorAll('#version').forEach(el => el.textContent = window.addinVersion);
     </script>
     <script src="taskpane.js"></script>
