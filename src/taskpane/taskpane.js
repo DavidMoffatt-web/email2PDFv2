@@ -24,37 +24,76 @@ window.addEventListener('unhandledrejection', function(e) {
 function stripHtml(html) {
     const temp = document.createElement('div');
     temp.innerHTML = html;
-    return temp.textContent || temp.innerText || '';
+    
+    // Get text content and clean it up
+    let text = temp.textContent || temp.innerText || '';
+    
+    // Replace multiple whitespace with single spaces
+    text = text.replace(/\s+/g, ' ');
+    
+    // Replace HTML entities and special characters that might cause encoding issues
+    text = text.replace(/&nbsp;/g, ' ');
+    text = text.replace(/&amp;/g, '&');
+    text = text.replace(/&lt;/g, '<');
+    text = text.replace(/&gt;/g, '>');
+    text = text.replace(/&quot;/g, '"');
+    text = text.replace(/&#39;/g, "'");
+    
+    // Remove or replace characters that WinAnsi can't encode
+    text = text.replace(/[^\x20-\x7E\n\r\t]/g, '?'); // Replace non-ASCII with ?
+    
+    // Normalize line breaks
+    text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    
+    return text.trim();
 }
 
 // Helper function to split text into lines
 function splitTextIntoLines(text, font, fontSize, maxWidth) {
     const lines = [];
-    const words = text.split(' ');
-    let currentLine = '';
     
-    for (const word of words) {
-        const testLine = currentLine ? `${currentLine} ${word}` : word;
-        const width = font.widthOfTextAtSize(testLine, fontSize);
-        
-        if (width < maxWidth) {
-            currentLine = testLine;
-        } else {
-            lines.push(currentLine);
-            currentLine = word;
+    // First, split by newlines to handle paragraph breaks
+    const paragraphs = text.split('\n');
+    
+    for (const paragraph of paragraphs) {
+        if (paragraph.trim() === '') {
+            lines.push(''); // Add empty line for spacing
+            continue;
         }
         
-        if (word.includes('\n')) {
-            const parts = word.split('\n');
-            if (parts.length > 1) {
-                lines.push(currentLine);
-                currentLine = parts[parts.length - 1];
+        const words = paragraph.split(' ');
+        let currentLine = '';
+        
+        for (const word of words) {
+            // Clean the word of any remaining newline characters
+            const cleanWord = word.replace(/[\n\r]/g, '');
+            if (cleanWord === '') continue;
+            
+            const testLine = currentLine ? `${currentLine} ${cleanWord}` : cleanWord;
+            
+            try {
+                const width = font.widthOfTextAtSize(testLine, fontSize);
+                
+                if (width < maxWidth) {
+                    currentLine = testLine;
+                } else {
+                    if (currentLine) {
+                        lines.push(currentLine);
+                    }
+                    currentLine = cleanWord;
+                }
+            } catch (err) {
+                // If we can't calculate width (e.g., special characters), just add the word
+                if (currentLine) {
+                    lines.push(currentLine);
+                }
+                currentLine = cleanWord;
             }
         }
-    }
-    
-    if (currentLine) {
-        lines.push(currentLine);
+        
+        if (currentLine) {
+            lines.push(currentLine);
+        }
     }
     
     return lines;
@@ -102,8 +141,8 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
     try {
         // Create a new PDF document
         const pdfDoc = await PDFDocument.create();
-        const page = pdfDoc.addPage([595, 842]); // A4 size in points
-        const { width, height } = page.getSize();
+        let currentPage = pdfDoc.addPage([595, 842]); // A4 size in points
+        const { width, height } = currentPage.getSize();
         
         // Add a font
         const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
@@ -120,17 +159,20 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
         for (const line of lines) {
             if (y < 50) {
                 // Add a new page if we're near the bottom
-                const newPage = pdfDoc.addPage([595, 842]);
+                currentPage = pdfDoc.addPage([595, 842]);
                 y = height - 50;
             }
             
-            page.drawText(line, {
-                x: 50,
-                y,
-                size: fontSize,
-                font,
-                color: { r: 0, g: 0, b: 0 },
-            });
+            // Only draw non-empty lines
+            if (line.trim()) {
+                currentPage.drawText(line, {
+                    x: 50,
+                    y,
+                    size: fontSize,
+                    font,
+                    color: { r: 0, g: 0, b: 0 },
+                });
+            }
             
             y -= lineHeight;
         }
@@ -142,7 +184,7 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
         const blob = new Blob([pdfBytes], { type: 'application/pdf' });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
-        link.download = Office.context.mailbox.item.subject + '.pdf';
+        link.download = (Office.context.mailbox.item.subject || 'email') + '.pdf';
         link.click();
         
         console.log('PDF created successfully with pdf-lib');
