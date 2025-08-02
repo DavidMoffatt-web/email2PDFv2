@@ -182,34 +182,89 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
         const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
         const courier = await pdfDoc.embedFont(StandardFonts.Courier);
         
-        let y = height - 50;
-        const margin = 50;
+        let y = height - 30; // Start higher on page
+        const margin = 40;
         const contentWidth = width - (margin * 2);
+        
+        // Color definitions for better visual appeal
+        const colors = {
+            darkBlue: rgb(0.2, 0.3, 0.6),
+            lightGray: rgb(0.95, 0.95, 0.95),
+            mediumGray: rgb(0.7, 0.7, 0.7),
+            darkGray: rgb(0.3, 0.3, 0.3),
+            black: rgb(0, 0, 0),
+            white: rgb(1, 1, 1),
+            lightBlue: rgb(0.9, 0.95, 1),
+            linkBlue: rgb(0.2, 0.4, 0.8)
+        };
         
         // Function to add a new page if needed
         const addPageIfNeeded = (requiredHeight = 20) => {
             if (y < margin + requiredHeight) {
                 currentPage = pdfDoc.addPage([595, 842]);
-                y = height - 50;
+                y = height - 30;
                 return true;
             }
             return false;
         };
         
-        // Function to draw text with wrapping
-        const drawWrappedText = (text, font, fontSize, color = rgb(0, 0, 0), lineSpacing = 1.2) => {
-            // Clean the text before processing
+        // Function to draw a styled header box
+        const drawHeaderBox = (title, content, bgColor = colors.lightGray) => {
+            const titleHeight = 20;
+            const contentHeight = content.length * 16 + 20;
+            const totalHeight = titleHeight + contentHeight;
+            
+            addPageIfNeeded(totalHeight + 10);
+            
+            // Draw background box
+            currentPage.drawRectangle({
+                x: margin,
+                y: y - totalHeight,
+                width: contentWidth,
+                height: totalHeight,
+                color: bgColor,
+                borderColor: colors.mediumGray,
+                borderWidth: 1,
+            });
+            
+            // Draw title
+            currentPage.drawText(title, {
+                x: margin + 15,
+                y: y - 18,
+                size: 12,
+                font: helveticaBold,
+                color: colors.darkBlue,
+            });
+            
+            y -= titleHeight + 5;
+            
+            // Draw content lines
+            for (const line of content) {
+                currentPage.drawText(line, {
+                    x: margin + 15,
+                    y: y - 12,
+                    size: 10,
+                    font: helvetica,
+                    color: colors.black,
+                });
+                y -= 16;
+            }
+            
+            y -= 15; // Extra spacing after box
+        };
+        
+        // Function to draw text with wrapping and better styling
+        const drawWrappedText = (text, font, fontSize, color = colors.black, lineSpacing = 1.3, indent = 0) => {
             const cleanText = cleanTextForPdfLib(text);
-            const lines = splitTextIntoLines(cleanText, font, fontSize, contentWidth);
+            const lines = splitTextIntoLines(cleanText, font, fontSize, contentWidth - indent);
             const lineHeight = fontSize * lineSpacing;
             
             for (const line of lines) {
                 addPageIfNeeded(lineHeight);
                 if (line.trim()) {
-                    // Double-check each line before drawing
                     const cleanLine = cleanTextForPdfLib(line);
                     currentPage.drawText(cleanLine, {
-                        x: margin,
+                        x: margin + indent,
                         y,
                         size: fontSize,
                         font,
@@ -221,84 +276,82 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
             return lines.length * lineHeight;
         };
         
-        // Parse and format the metadata section
+        // Function to detect and format links
+        const drawTextWithLinks = (text, font, fontSize, defaultColor = colors.black) => {
+            const cleanText = cleanTextForPdfLib(text);
+            // Simple URL detection
+            const urlRegex = /(https?:\/\/[^\s]+)/g;
+            const parts = cleanText.split(urlRegex);
+            
+            let currentX = margin;
+            for (let i = 0; i < parts.length; i++) {
+                const part = parts[i];
+                if (!part) continue;
+                
+                const isUrl = urlRegex.test(part);
+                const color = isUrl ? colors.linkBlue : defaultColor;
+                const partFont = isUrl ? helvetica : font;
+                
+                // Check if we need to wrap to next line
+                const textWidth = partFont.widthOfTextAtSize(part, fontSize);
+                if (currentX + textWidth > width - margin) {
+                    y -= fontSize * 1.3;
+                    currentX = margin;
+                    addPageIfNeeded(fontSize * 1.3);
+                }
+                
+                currentPage.drawText(part, {
+                    x: currentX,
+                    y,
+                    size: fontSize,
+                    font: partFont,
+                    color,
+                });
+                
+                currentX += textWidth;
+            }
+            y -= fontSize * 1.5; // Line spacing after text with links
+        };
+        
+        // Parse and format the metadata section with enhanced styling
         const metaDoc = new DOMParser().parseFromString(metaHtml, 'text/html');
         const metaText = metaDoc.body.textContent || metaDoc.body.innerText || '';
         
-        // Header: Email metadata with better formatting
-        drawWrappedText('EMAIL DETAILS', helveticaBold, 14, rgb(0.2, 0.2, 0.2));
-        y -= 10; // Extra spacing after header
-        
-        // Parse metadata fields
+        // Create a beautiful email header
         const metaLines = metaText.split('\n').filter(line => line.trim());
+        const emailDetails = [];
+        
         for (const line of metaLines) {
             if (line.includes(':')) {
                 const [label, ...valueParts] = line.split(':');
                 const value = valueParts.join(':').trim();
-                
-                // Draw label in bold
-                const labelWidth = helveticaBold.widthOfTextAtSize(label + ': ', 11);
-                addPageIfNeeded(15);
-                currentPage.drawText(label + ': ', {
-                    x: margin,
-                    y,
-                    size: 11,
-                    font: helveticaBold,
-                    color: rgb(0.3, 0.3, 0.3),
-                });
-                
-                // Draw value in regular font, wrapped if needed
                 if (value) {
-                    const remainingWidth = contentWidth - labelWidth;
-                    const valueLines = splitTextIntoLines(value, helvetica, 11, remainingWidth);
-                    
-                    // First line on same line as label
-                    if (valueLines[0]) {
-                        currentPage.drawText(valueLines[0], {
-                            x: margin + labelWidth,
-                            y,
-                            size: 11,
-                            font: helvetica,
-                            color: rgb(0, 0, 0),
-                        });
-                    }
-                    y -= 15;
-                    
-                    // Additional lines indented
-                    for (let i = 1; i < valueLines.length; i++) {
-                        addPageIfNeeded(15);
-                        currentPage.drawText(valueLines[i], {
-                            x: margin + labelWidth,
-                            y,
-                            size: 11,
-                            font: helvetica,
-                            color: rgb(0, 0, 0),
-                        });
-                        y -= 15;
-                    }
-                } else {
-                    y -= 15;
+                    emailDetails.push(`${label.trim()}: ${value}`);
                 }
             }
         }
         
-        y -= 20; // Extra space before content
+        // Draw EMAIL DETAILS header box
+        if (emailDetails.length > 0) {
+            drawHeaderBox('📧 EMAIL DETAILS', emailDetails, colors.lightBlue);
+        }
         
-        // Add separator line
-        addPageIfNeeded(10);
+        // Add separator with some visual flair
+        y -= 10;
+        addPageIfNeeded(20);
         currentPage.drawLine({
             start: { x: margin, y: y },
             end: { x: width - margin, y: y },
-            thickness: 1,
-            color: rgb(0.8, 0.8, 0.8),
+            thickness: 2,
+            color: colors.darkBlue,
         });
-        y -= 20;
+        y -= 25;
         
-        // Parse HTML body with better formatting
+        // Parse HTML body with enhanced formatting
         const bodyDoc = new DOMParser().parseFromString(htmlBody, 'text/html');
         
-        // Process different HTML elements
-        const processElement = (element, defaultFont = helvetica, defaultSize = 11, defaultColor = rgb(0, 0, 0)) => {
+        // Enhanced element processing with better visual hierarchy
+        const processElement = (element, defaultFont = helvetica, defaultSize = 11, defaultColor = colors.black, depth = 0) => {
             const tagName = element.tagName?.toLowerCase();
             
             switch (tagName) {
@@ -308,20 +361,95 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
                 case 'h4':
                 case 'h5':
                 case 'h6':
-                    y -= 10; // Space before heading
-                    const headingSize = tagName === 'h1' ? 16 : tagName === 'h2' ? 14 : 12;
+                    y -= 15; // More space before heading
+                    const headingSize = tagName === 'h1' ? 18 : tagName === 'h2' ? 16 : tagName === 'h3' ? 14 : 12;
                     const headingText = cleanTextForPdfLib(element.textContent || element.innerText || '');
                     if (headingText) {
-                        drawWrappedText(headingText, helveticaBold, headingSize, rgb(0.1, 0.1, 0.1));
-                        y -= 5; // Space after heading
+                        // Add background for major headings
+                        if (tagName === 'h1' || tagName === 'h2') {
+                            const textWidth = helveticaBold.widthOfTextAtSize(headingText, headingSize);
+                            const textHeight = headingSize + 8;
+                            addPageIfNeeded(textHeight + 10);
+                            
+                            currentPage.drawRectangle({
+                                x: margin - 5,
+                                y: y - textHeight + 5,
+                                width: Math.min(textWidth + 20, contentWidth + 10),
+                                height: textHeight,
+                                color: colors.lightGray,
+                            });
+                        }
+                        
+                        drawWrappedText(headingText, helveticaBold, headingSize, colors.darkBlue);
+                        y -= 10; // Space after heading
                     }
                     break;
                     
                 case 'p':
                     const pText = cleanTextForPdfLib(element.textContent || element.innerText || '');
                     if (pText.trim()) {
-                        drawWrappedText(pText, defaultFont, defaultSize, defaultColor);
-                        y -= 10; // Paragraph spacing
+                        // Check if paragraph contains links
+                        if (pText.includes('http')) {
+                            addPageIfNeeded(defaultSize * 1.5);
+                            drawTextWithLinks(pText, defaultFont, defaultSize, defaultColor);
+                        } else {
+                            drawWrappedText(pText, defaultFont, defaultSize, defaultColor);
+                        }
+                        y -= 12; // Paragraph spacing
+                    }
+                    break;
+                    
+                case 'div':
+                    // Special handling for Teams-style cards or containers
+                    const divText = cleanTextForPdfLib(element.textContent || element.innerText || '');
+                    if (divText.trim()) {
+                        // Check if this looks like a Teams conversation card
+                        if (divText.includes('Join conversation') || divText.includes('teams.microsoft.com')) {
+                            y -= 10;
+                            const cardHeight = 60;
+                            addPageIfNeeded(cardHeight + 10);
+                            
+                            // Draw Teams-style card
+                            currentPage.drawRectangle({
+                                x: margin,
+                                y: y - cardHeight,
+                                width: contentWidth,
+                                height: cardHeight,
+                                color: colors.lightBlue,
+                                borderColor: colors.darkBlue,
+                                borderWidth: 2,
+                            });
+                            
+                            // Add Teams icon representation
+                            currentPage.drawText('📞', {
+                                x: margin + 15,
+                                y: y - 25,
+                                size: 16,
+                                font: helvetica,
+                                color: colors.darkBlue,
+                            });
+                            
+                            currentPage.drawText('Join conversation', {
+                                x: margin + 45,
+                                y: y - 20,
+                                size: 12,
+                                font: helveticaBold,
+                                color: colors.darkBlue,
+                            });
+                            
+                            currentPage.drawText('teams.microsoft.com', {
+                                x: margin + 45,
+                                y: y - 35,
+                                size: 10,
+                                font: helvetica,
+                                color: colors.linkBlue,
+                            });
+                            
+                            y -= cardHeight + 15;
+                        } else {
+                            drawWrappedText(divText, defaultFont, defaultSize, defaultColor);
+                            y -= 8;
+                        }
                     }
                     break;
                     
@@ -333,77 +461,79 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
                     }
                     break;
                     
-                case 'code':
-                case 'pre':
-                    const codeText = cleanTextForPdfLib(element.textContent || element.innerText || '');
-                    if (codeText) {
-                        y -= 5;
-                        // Code background (light gray rectangle)
-                        const codeLines = splitTextIntoLines(codeText, courier, 10, contentWidth - 20);
-                        const codeHeight = codeLines.length * 12 + 10;
-                        addPageIfNeeded(codeHeight);
-                        
-                        currentPage.drawRectangle({
+                case 'a':
+                    const linkText = cleanTextForPdfLib(element.textContent || element.innerText || '');
+                    const href = element.getAttribute('href') || '';
+                    if (linkText) {
+                        addPageIfNeeded(defaultSize * 1.5);
+                        currentPage.drawText(linkText, {
                             x: margin,
-                            y: y - codeHeight + 5,
-                            width: contentWidth,
-                            height: codeHeight,
-                            color: rgb(0.95, 0.95, 0.95),
+                            y,
+                            size: defaultSize,
+                            font: helvetica,
+                            color: colors.linkBlue,
                         });
+                        y -= defaultSize * 1.3;
                         
-                        // Draw code text
-                        for (const line of codeLines) {
-                            addPageIfNeeded(12);
-                            if (line.trim()) {
-                                const cleanCodeLine = cleanTextForPdfLib(line);
-                                currentPage.drawText(cleanCodeLine, {
-                                    x: margin + 10,
-                                    y,
-                                    size: 10,
-                                    font: courier,
-                                    color: rgb(0.2, 0.2, 0.2),
-                                });
-                            }
+                        // Add URL if different from text
+                        if (href && href !== linkText && !linkText.includes(href)) {
+                            const shortUrl = href.length > 60 ? href.substring(0, 60) + '...' : href;
+                            currentPage.drawText(shortUrl, {
+                                x: margin + 10,
+                                y,
+                                size: 9,
+                                font: helvetica,
+                                color: colors.mediumGray,
+                            });
                             y -= 12;
                         }
-                        y -= 10;
                     }
                     break;
                     
                 case 'ul':
                 case 'ol':
+                    y -= 5;
                     const listItems = element.querySelectorAll('li');
                     listItems.forEach((li, index) => {
                         const bullet = tagName === 'ul' ? '• ' : `${index + 1}. `;
                         const liText = cleanTextForPdfLib(li.textContent || li.innerText || '');
                         if (liText.trim()) {
-                            addPageIfNeeded(15);
-                            // Draw bullet/number
-                            currentPage.drawText(bullet, {
+                            addPageIfNeeded(16);
+                            
+                            // Draw bullet with background
+                            currentPage.drawRectangle({
                                 x: margin + 10,
-                                y,
+                                y: y - 12,
+                                width: 15,
+                                height: 12,
+                                color: colors.lightGray,
+                            });
+                            
+                            currentPage.drawText(bullet, {
+                                x: margin + 12,
+                                y: y - 10,
                                 size: defaultSize,
-                                font: defaultFont,
-                                color: defaultColor,
+                                font: helveticaBold,
+                                color: colors.darkBlue,
                             });
                             
                             // Draw list item text with proper indentation
-                            const bulletWidth = defaultFont.widthOfTextAtSize(bullet, defaultSize);
+                            const bulletWidth = 25;
                             const itemLines = splitTextIntoLines(liText, defaultFont, defaultSize, contentWidth - bulletWidth - 20);
                             
                             for (let i = 0; i < itemLines.length; i++) {
-                                if (i > 0) addPageIfNeeded(15);
+                                if (i > 0) addPageIfNeeded(16);
                                 const cleanItemLine = cleanTextForPdfLib(itemLines[i]);
                                 currentPage.drawText(cleanItemLine, {
                                     x: margin + 10 + bulletWidth,
-                                    y,
+                                    y: y - 10,
                                     size: defaultSize,
                                     font: defaultFont,
                                     color: defaultColor,
                                 });
-                                if (i < itemLines.length - 1) y -= 15;
+                                if (i < itemLines.length - 1) y -= 16;
                             }
-                            y -= 15;
+                            y -= 18;
                         }
                     });
                     y -= 10; // Space after list
@@ -412,78 +542,109 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
                 case 'blockquote':
                     const quoteText = cleanTextForPdfLib(element.textContent || element.innerText || '');
                     if (quoteText) {
-                        y -= 5;
-                        // Draw quote bar
-                        addPageIfNeeded(20);
+                        y -= 10;
+                        const quoteLines = splitTextIntoLines(quoteText, helvetica, 11, contentWidth - 40);
+                        const quoteHeight = quoteLines.length * 15 + 10;
+                        
+                        addPageIfNeeded(quoteHeight + 10);
+                        
+                        // Draw quote background
                         currentPage.drawRectangle({
-                            x: margin,
-                            y: y - 20,
-                            width: 3,
-                            height: 20,
-                            color: rgb(0.6, 0.6, 0.6),
+                            x: margin + 15,
+                            y: y - quoteHeight,
+                            width: contentWidth - 20,
+                            height: quoteHeight,
+                            color: colors.lightGray,
                         });
                         
-                        // Draw quote text with indentation
-                        const quoteLines = splitTextIntoLines(quoteText, helvetica, 11, contentWidth - 30);
+                        // Draw quote bar
+                        currentPage.drawRectangle({
+                            x: margin + 10,
+                            y: y - quoteHeight,
+                            width: 4,
+                            height: quoteHeight,
+                            color: colors.darkBlue,
+                        });
+                        
+                        // Draw quote text
                         for (const line of quoteLines) {
-                            addPageIfNeeded(15);
                             if (line.trim()) {
                                 const cleanQuoteLine = cleanTextForPdfLib(line);
                                 currentPage.drawText(cleanQuoteLine, {
-                                    x: margin + 20,
-                                    y,
+                                    x: margin + 25,
+                                    y: y - 12,
                                     size: 11,
                                     font: helvetica,
-                                    color: rgb(0.4, 0.4, 0.4),
+                                    color: colors.darkGray,
                                 });
                             }
                             y -= 15;
                         }
-                        y -= 10;
+                        y -= 15;
                     }
                     break;
                     
                 default:
-                    // For other elements, just extract text
+                    // For other elements, extract text with better formatting
                     const text = cleanTextForPdfLib(element.textContent || element.innerText || '');
-                    if (text.trim() && !element.querySelector('p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote')) {
-                        drawWrappedText(text, defaultFont, defaultSize, defaultColor);
-                        y -= 5;
+                    if (text.trim() && !element.querySelector('p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, div')) {
+                        if (text.includes('http')) {
+                            addPageIfNeeded(defaultSize * 1.5);
+                            drawTextWithLinks(text, defaultFont, defaultSize, defaultColor);
+                        } else {
+                            drawWrappedText(text, defaultFont, defaultSize, defaultColor);
+                        }
+                        y -= 8;
                     }
                     break;
             }
         };
         
         // Process all elements in the body
-        const walkElements = (element) => {
-            // Process current element
-            processElement(element);
+        const walkElements = (element, depth = 0) => {
+            processElement(element, helvetica, 11, colors.black, depth);
             
             // Process children for elements that don't handle their own children
             const tagName = element.tagName?.toLowerCase();
             if (!['ul', 'ol', 'code', 'pre'].includes(tagName)) {
                 for (const child of element.children) {
-                    walkElements(child);
+                    walkElements(child, depth + 1);
                 }
             }
         };
         
+        // Add content header
+        drawHeaderBox('📄 MESSAGE CONTENT', [], colors.lightGray);
+        
         // Start processing from body
-        if (bodyDoc.body) {
+        if (bodyDoc.body && bodyDoc.body.children.length > 0) {
             for (const child of bodyDoc.body.children) {
                 walkElements(child);
             }
-        }
-        
-        // If no structured content found, fall back to simple text
-        if (y > height - 100) {
+        } else {
+            // Fallback to simple text if no structured content
             const simpleText = stripHtml(htmlBody);
             if (simpleText.trim()) {
-                drawWrappedText('EMAIL CONTENT', helveticaBold, 12, rgb(0.2, 0.2, 0.2));
-                y -= 10;
                 drawWrappedText(simpleText, helvetica, 11);
             }
         }
+        
+        // Add footer with generation info
+        y = 30; // Bottom of page
+        currentPage.drawLine({
+            start: { x: margin, y: y + 10 },
+            end: { x: width - margin, y: y + 10 },
+            thickness: 1,
+            color: colors.mediumGray,
+        });
+        
+        currentPage.drawText(`Generated by Email2PDF • ${new Date().toLocaleDateString()}`, {
+            x: margin,
+            y: y,
+            size: 8,
+            font: helvetica,
+            color: colors.mediumGray,
+        });
         
         // Save the PDF
         const pdfBytes = await pdfDoc.save();
@@ -495,7 +656,7 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
         link.download = (Office.context.mailbox.item.subject || 'email') + '.pdf';
         link.click();
         
-        console.log('PDF created successfully with pdf-lib (enhanced formatting)');
+        console.log('PDF created successfully with pdf-lib (enhanced visual formatting)');
     } catch (err) {
         console.error('Error creating PDF with pdf-lib:', err);
         throw err;
