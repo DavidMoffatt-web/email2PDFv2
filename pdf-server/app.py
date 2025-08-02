@@ -774,6 +774,8 @@ def convert_docx_to_pdf(content_bytes, name, page_size, margin, orientation):
         from docx import Document
         import io
         
+        logger.info(f"Loading DOCX document: {name}, size: {len(content_bytes)} bytes")
+        
         # Load DOCX document
         doc = Document(io.BytesIO(content_bytes))
         
@@ -786,21 +788,72 @@ def convert_docx_to_pdf(content_bytes, name, page_size, margin, orientation):
                 body {{ font-family: Arial, sans-serif; line-height: 1.6; margin: 20px; }}
                 h1, h2, h3 {{ color: #333; }}
                 p {{ margin: 10px 0; }}
+                .document-header {{ 
+                    background-color: #f8f9fa; 
+                    padding: 15px; 
+                    border-left: 4px solid #007acc; 
+                    margin-bottom: 20px; 
+                }}
             </style>
         </head>
         <body>
-        <h1>Document: {name}</h1>
+        <div class="document-header">
+            <h1>Document: {name}</h1>
+        </div>
         """
         
-        # Extract paragraphs
-        for paragraph in doc.paragraphs:
-            if paragraph.text.strip():
-                # Simple heading detection
+        # Count paragraphs for debugging
+        total_paragraphs = len(doc.paragraphs)
+        content_paragraphs = 0
+        
+        logger.info(f"Document has {total_paragraphs} paragraphs")
+        
+        # Extract paragraphs with better handling
+        for i, paragraph in enumerate(doc.paragraphs):
+            para_text = paragraph.text.strip()
+            if para_text:
+                content_paragraphs += 1
+                logger.debug(f"Paragraph {i+1}: '{para_text[:50]}...' (style: {paragraph.style.name})")
+                
+                # Handle different paragraph styles
                 if paragraph.style.name.startswith('Heading'):
-                    level = paragraph.style.name.replace('Heading ', '') or '1'
-                    html_content += f"<h{level}>{paragraph.text}</h{level}>"
+                    # Extract heading level
+                    heading_parts = paragraph.style.name.split()
+                    if len(heading_parts) > 1 and heading_parts[1].isdigit():
+                        level = heading_parts[1]
+                    else:
+                        level = '1'
+                    html_content += f"<h{level}>{para_text}</h{level}>\n"
+                elif paragraph.style.name in ['Title', 'Subtitle']:
+                    html_content += f"<h1>{para_text}</h1>\n"
                 else:
-                    html_content += f"<p>{paragraph.text}</p>"
+                    # Regular paragraph
+                    html_content += f"<p>{para_text}</p>\n"
+        
+        # If no content was found, try to extract in a different way
+        if content_paragraphs == 0:
+            logger.warning(f"No content paragraphs found in {name}, trying alternative extraction")
+            
+            # Try extracting from document body directly
+            try:
+                full_text = ""
+                for paragraph in doc.paragraphs:
+                    full_text += paragraph.text + "\n"
+                
+                if full_text.strip():
+                    # Split into lines and create paragraphs
+                    lines = [line.strip() for line in full_text.split('\n') if line.strip()]
+                    for line in lines[:20]:  # Limit to first 20 lines
+                        html_content += f"<p>{line}</p>\n"
+                    logger.info(f"Extracted {len(lines)} lines of text using alternative method")
+                else:
+                    html_content += "<p><em>No text content could be extracted from this document.</em></p>\n"
+                    logger.warning(f"No text content found in {name}")
+            except Exception as alt_e:
+                logger.error(f"Alternative extraction failed for {name}: {str(alt_e)}")
+                html_content += "<p><em>Document could not be processed - it may be encrypted or corrupted.</em></p>\n"
+        else:
+            logger.info(f"Successfully extracted {content_paragraphs} paragraphs from {name}")
         
         html_content += "</body></html>"
         

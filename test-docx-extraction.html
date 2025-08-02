@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test DOCX Conversion</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        button {
+            background: #007acc;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #005999;
+        }
+        #results {
+            background: white;
+            padding: 15px;
+            border-radius: 3px;
+            margin-top: 10px;
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
+        .content-item {
+            background: #e8f4fd;
+            padding: 10px;
+            margin: 5px 0;
+            border-left: 4px solid #007acc;
+        }
+        .error {
+            background: #ffe6e6;
+            border-left-color: #cc0000;
+        }
+    </style>
+</head>
+<body>
+    <h1>Test DOCX Content Extraction</h1>
+    
+    <div class="container">
+        <h2>Upload DOCX File</h2>
+        <input type="file" id="fileInput" accept=".docx" />
+        <button onclick="testDocxExtraction()">Test DOCX Extraction</button>
+    </div>
+    
+    <div class="container">
+        <h2>Test with Sample DOCX</h2>
+        <button onclick="testWithSampleDocx()">Create and Test Sample DOCX</button>
+    </div>
+    
+    <div id="results"></div>
+
+    <script>
+        const SERVER_URL = 'http://localhost:5001';
+
+        async function testDocxExtraction() {
+            const fileInput = document.getElementById('fileInput');
+            const resultsDiv = document.getElementById('results');
+            
+            if (!fileInput.files || fileInput.files.length === 0) {
+                resultsDiv.innerHTML = 'Please select a DOCX file first.';
+                return;
+            }
+            
+            const file = fileInput.files[0];
+            
+            try {
+                resultsDiv.innerHTML = 'Processing file...';
+                
+                // Convert file to base64
+                const fileData = await fileToBase64(file);
+                
+                // Send to server
+                const response = await fetch(`${SERVER_URL}/test-docx`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        filename: file.name,
+                        fileData: fileData
+                    })
+                });
+                
+                const result = await response.json();
+                displayResults(result);
+                
+            } catch (error) {
+                resultsDiv.innerHTML = `Error: ${error.message}`;
+            }
+        }
+
+        async function testWithSampleDocx() {
+            const resultsDiv = document.getElementById('results');
+            
+            try {
+                resultsDiv.innerHTML = 'Creating sample DOCX...';
+                
+                // Create a simple sample DOCX by POSTing to a sample endpoint
+                // For now, we'll simulate this with some test data
+                const sampleData = {
+                    filename: 'sample.docx',
+                    fileData: 'sample-base64-data'  // This would be actual base64 data
+                };
+                
+                resultsDiv.innerHTML = 'For this test, please upload an actual DOCX file using the file input above.';
+                
+            } catch (error) {
+                resultsDiv.innerHTML = `Error: ${error.message}`;
+            }
+        }
+
+        function fileToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = () => {
+                    // Remove the data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64, prefix
+                    const base64 = reader.result.split(',')[1];
+                    resolve(base64);
+                };
+                reader.onerror = error => reject(error);
+            });
+        }
+
+        function displayResults(result) {
+            const resultsDiv = document.getElementById('results');
+            
+            if (!result.success) {
+                resultsDiv.innerHTML = `
+                    <div class="content-item error">
+                        <strong>Error processing ${result.filename}:</strong><br>
+                        ${result.error}
+                    </div>
+                `;
+                return;
+            }
+            
+            let html = `
+                <h3>Results for: ${result.filename}</h3>
+                <p><strong>Total paragraphs:</strong> ${result.total_paragraphs}</p>
+                <p><strong>Content paragraphs:</strong> ${result.content_paragraphs}</p>
+                <h4>Extracted Content:</h4>
+            `;
+            
+            result.extracted_content.forEach(item => {
+                const cssClass = item.type === 'error' ? 'content-item error' : 'content-item';
+                html += `
+                    <div class="${cssClass}">
+                        <strong>${item.index}. [${item.style}] (${item.type}):</strong><br>
+                        ${item.text}
+                    </div>
+                `;
+            });
+            
+            resultsDiv.innerHTML = html;
+        }
+
+        // Test server connection on load
+        window.onload = async function() {
+            try {
+                const response = await fetch(`${SERVER_URL}/health`);
+                const result = await response.json();
+                console.log('Server status:', result);
+            } catch (error) {
+                console.error('Could not connect to test server:', error);
+                document.getElementById('results').innerHTML = 'Warning: Could not connect to test server on port 5001. Please make sure the test server is running.';
+            }
+        };
+    </script>
+</body>
+</html>

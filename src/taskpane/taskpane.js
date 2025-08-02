@@ -1374,7 +1374,7 @@ async function createServerPdf(metaHtml, htmlBody, attachments) {
     
     try {
         // Check if server is available
-        const serverUrl = 'http://localhost:5000';
+        const serverUrl = 'http://localhost:5002';
         
         // Test server connection first
         try {
