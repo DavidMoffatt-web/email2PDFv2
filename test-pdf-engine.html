@@ -221,26 +221,14 @@
                 const originalImageCount = (fullHtml.match(/<img[^>]*>/gi) || []).length;
                 
                 fullHtml = fullHtml.replace(/<img[^>]*src\s*=\s*["']([^"']*)[^>]*>/gi, (match, src) => {
-                    const problematicDomains = [
-                        'trk.theoodie.com',
-                        'track.',
-                        'tracking.',
-                        'analytics.',
-                        'pixel.',
-                        'beacon.',
-                        'events.',
-                        'metrics.',
-                        'telemetry.'
-                    ];
-                    
-                    const shouldRemove = problematicDomains.some(domain => src.includes(domain));
-                    
-                    if (shouldRemove) {
-                        console.log('Removing problematic image:', src);
-                        return '<!-- Image removed due to CORS restrictions -->';
+                    // Check if this is an external URL (http/https)
+                    if (src.startsWith('http://') || src.startsWith('https://')) {
+                        console.log('Removing external image to prevent VFS errors:', src);
+                        return '<!-- External image removed to prevent CORS/VFS errors -->';
                     }
                     
-                    return match.replace('<img', '<img crossorigin="anonymous"');
+                    // Keep data URLs and relative paths
+                    return match;
                 });
                 
                 const finalImageCount = (fullHtml.match(/<img[^>]*>/gi) || []).length;

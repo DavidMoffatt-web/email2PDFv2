@@ -846,30 +846,16 @@ async function createHtmlToPdfmakePdf(metaHtml, htmlBody, attachments) {
         fullHtml = fullHtml.replace(/(Aptos|Calibri|Arial|Times New Roman|Helvetica|serif|sans-serif|monospace)/gi, 'Roboto');
         
         // Pre-process HTML to handle problematic external images that might cause CORS issues
-        // Remove tracking pixels and external images that typically cause CORS problems
+        // Remove ALL external images (http/https URLs) since they consistently cause VFS errors in pdfMake
         fullHtml = fullHtml.replace(/<img[^>]*src\s*=\s*["']([^"']*)[^>]*>/gi, (match, src) => {
-            // Remove known problematic domains that typically block CORS
-            const problematicDomains = [
-                'trk.theoodie.com',
-                'track.',
-                'tracking.',
-                'analytics.',
-                'pixel.',
-                'beacon.',
-                'events.',
-                'metrics.',
-                'telemetry.'
-            ];
-            
-            const shouldRemove = problematicDomains.some(domain => src.includes(domain));
-            
-            if (shouldRemove) {
-                console.log('Removing problematic image:', src);
-                return '<!-- Image removed due to CORS restrictions -->';
+            // Check if this is an external URL (http/https)
+            if (src.startsWith('http://') || src.startsWith('https://')) {
+                console.log('Removing external image to prevent VFS errors:', src);
+                return '<!-- External image removed to prevent CORS/VFS errors -->';
             }
             
-            // Keep other images but add error handling attributes
-            return match.replace('<img', '<img crossorigin="anonymous"');
+            // Keep data URLs and relative paths
+            return match;
         });
         
         // Configure html-to-pdfmake options with font mapping and conservative image handling
