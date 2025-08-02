@@ -1,62 +1,90 @@
-# Image Conversion Test Plan for html-to-pdfmake
+# Image Formatting Fix for html-to-pdfmake
 
-## Summary
-This test plan validates that external images are successfully converted to base64 data URLs when using the html-to-pdfmake PDF engine, while maintaining selectable text and proper formatting.
+## Problem Analysis
+User reported that images appear as empty placeholder boxes with borders instead of actual image content. This suggests the images are being detected but not properly rendered in the PDF.
 
-## Test Setup
-1. Open the add-in at https://localhost:3000
-2. Set PDF engine to "html-to-pdfmake"
-3. Click "Test PDF Engine" button
+## Root Cause Investigation
+1. **CORS Issues**: External images may be blocked by CORS policies
+2. **Base64 Format Issues**: Data URLs might not be properly formatted
+3. **pdfMake Image Handling**: html-to-pdfmake may not be processing images correctly
 
-## Expected Results
+## Updated Solution Strategy
 
-### ✅ Font Mapping
-- All fonts (Aptos, Calibri, Arial, Times New Roman, Helvetica) should be mapped to Roboto
-- Text should remain selectable in the generated PDF
-- No font-related errors in console
+### Primary Approach: imagesByReference
+- Use html-to-pdfmake's `imagesByReference: true` option
+- Let pdfMake handle images directly via its native image loading
+- This should work better with external URLs
 
-### ✅ Image Conversion 
-- 3 placeholder images from via.placeholder.com should appear in the PDF:
-  - Image 1: Blue 150x100 with "Image 1" text
-  - Image 2: Orange 150x100 with "Image 2" text  
-  - Image 3: Green 200x80 with "Image 3 Wider" text
-- Console should show image conversion progress messages
-- No CORS or VFS errors related to images
+### Fallback Approach: Enhanced Base64 Conversion  
+- Improved CORS handling with proxy fallback
+- Better validation of data URL format
+- Enhanced canvas processing with proper background
 
-### ✅ HTML Structure
-- Headings, lists, tables, and blockquotes should be preserved
-- CSS styles should be properly interpreted
-- No CSS code appearing as text in the PDF
+### Implementation Details
 
-### ✅ Error Handling
-- If any image fails to load, it should be gracefully removed with a comment
-- PDF generation should not fail due to image conversion errors
-- Timeout protection should prevent hanging on slow images
+#### New Features Added:
+1. **Dual Strategy**: Try imagesByReference first, fallback to base64
+2. **CORS Proxy**: Use existing image proxy for blocked images  
+3. **Enhanced Validation**: Check image dimensions and data URL format
+4. **Better Error Handling**: Graceful fallback when images fail
+5. **Improved Debugging**: Detailed console logging
 
-## Console Log Analysis
-Look for these messages in browser console:
-- "Converting external images to data URLs..."
-- "Found X external images to convert"
-- "Converting image: https://via.placeholder.com/..."
-- "Successfully converted image: https://via.placeholder.com/..."
-- "Image conversion completed"
+## Testing Instructions
+
+1. **Open add-in** at https://localhost:3000
+2. **Open browser console** to monitor debug messages
+3. **Select "html-to-pdfmake"** engine
+4. **Click "Test PDF Engine"** 
+5. **Monitor console output** for:
+   - "Attempting to use imagesByReference..."
+   - "Found X images to process with imagesByReference"
+   - Image conversion progress messages
+
+## Expected Console Output
+
+### Success Path (imagesByReference):
+```
+Attempting to use imagesByReference for better image handling...
+Found 3 images to process with imagesByReference
+Images found: ["img_ref_0", "img_ref_1", "img_ref_2"]
+Creating PDF with images via imagesByReference...
+PDF generated successfully with imagesByReference!
+```
+
+### Fallback Path (base64):
+```
+imagesByReference approach failed, falling back to base64 conversion
+Converting external images to base64 data URLs...
+Found 3 external images to convert
+Successfully converted image: https://via.placeholder.com/...
+Image conversion completed
+```
 
 ## Success Criteria
-1. PDF downloads successfully without errors
-2. PDF contains all 3 test images
-3. Text is selectable and properly formatted
-4. Console shows successful image conversion messages
-5. No JavaScript errors or CORS failures
+
+✅ **Images appear correctly** in PDF (not empty boxes)  
+✅ **No CORS errors** in browser console  
+✅ **Text remains selectable** and properly formatted  
+✅ **PDF downloads successfully** without JavaScript errors  
 
 ## Troubleshooting
-If images don't appear:
-1. Check browser console for CORS or conversion errors
-2. Verify via.placeholder.com is accessible
-3. Test with alternative image URLs if needed
-4. Confirm the convertExternalImagesToDataUrls function is being called
 
-## Implementation Details
-- Images are converted using HTML5 Canvas API
-- 10-second timeout prevents hanging on unresponsive images
-- Failed conversions result in image removal, not PDF failure
-- Base64 data URLs are embedded directly in the PDF document definition
+### If images still appear as empty boxes:
+1. Check if `imagesByReference` is being triggered in console
+2. Verify external image URLs are accessible
+3. Test with different image sources (try local images)
+4. Check pdfMake version compatibility
+
+### If imagesByReference fails:
+1. Monitor base64 conversion fallback in console
+2. Verify data URL format starts with `data:image/`
+3. Check image proxy functionality
+4. Test image loading in browser directly
+
+## Next Steps
+
+If this approach still doesn't work:
+1. **Test with local images** to isolate CORS issues
+2. **Try different image hosting** services  
+3. **Update pdfMake version** if compatibility issues
+4. **Consider alternative PDF libraries** if needed

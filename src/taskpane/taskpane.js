@@ -756,40 +756,107 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
 async function convertExternalImagesToDataUrls(html) {
     console.log('Converting external images to data URLs...');
     
-    // Function to convert a single image URL to base64 data URL
+    // Function to convert a single image URL to base64 data URL with better CORS handling
     function getBase64ImageFromURL(url) {
         return new Promise((resolve, reject) => {
-            const img = new Image();
-            img.setAttribute("crossOrigin", "anonymous");
+            console.log(`Attempting to load image: ${url}`);
             
-            img.onload = () => {
-                try {
-                    const canvas = document.createElement("canvas");
-                    canvas.width = img.width;
-                    canvas.height = img.height;
+            // Try multiple approaches for CORS issues
+            const tryLoadImage = (imageUrl, corsMode) => {
+                return new Promise((res, rej) => {
+                    const img = new Image();
                     
-                    const ctx = canvas.getContext("2d");
-                    ctx.drawImage(img, 0, 0);
+                    if (corsMode) {
+                        img.setAttribute("crossOrigin", "anonymous");
+                    }
                     
-                    const dataURL = canvas.toDataURL("image/png");
-                    resolve(dataURL);
-                } catch (error) {
-                    console.warn('Failed to convert image to canvas:', url, error);
-                    reject(error);
-                }
-            };
-            
-            img.onerror = (error) => {
-                console.warn('Failed to load image:', url, error);
-                reject(error);
+                    img.onload = () => {
+                        try {
+                            console.log(`Image loaded successfully: ${imageUrl}, dimensions: ${img.width}x${img.height}`);
+                            
+                            // Validate image dimensions
+                            if (img.width === 0 || img.height === 0) {
+                                console.warn(`Invalid image dimensions: ${img.width}x${img.height}`);
+                                rej(new Error('Invalid image dimensions'));
+                                return;
+                            }
+                            
+                            const canvas = document.createElement("canvas");
+                            canvas.width = img.width;
+                            canvas.height = img.height;
+                            
+                            const ctx = canvas.getContext("2d");
+                            
+                            // Clear the canvas and set white background
+                            ctx.fillStyle = 'white';
+                            ctx.fillRect(0, 0, canvas.width, canvas.height);
+                            
+                            ctx.drawImage(img, 0, 0);
+                            
+                            // Try to get data URL with different formats
+                            let dataURL;
+                            try {
+                                dataURL = canvas.toDataURL("image/png");
+                                console.log(`Successfully converted to PNG data URL, size: ${dataURL.length} chars`);
+                                
+                                // Validate the data URL format
+                                if (!dataURL.startsWith('data:image/')) {
+                                    throw new Error('Invalid data URL format');
+                                }
+                                
+                            } catch (e) {
+                                try {
+                                    dataURL = canvas.toDataURL("image/jpeg", 0.8);
+                                    console.log(`Successfully converted to JPEG data URL, size: ${dataURL.length} chars`);
+                                    
+                                    // Validate the data URL format
+                                    if (!dataURL.startsWith('data:image/')) {
+                                        throw new Error('Invalid data URL format');
+                                    }
+                                    
+                                } catch (e2) {
+                                    console.warn('Failed to convert canvas to data URL:', e2);
+                                    rej(e2);
+                                    return;
+                                }
+                            }
+                            
+                            res(dataURL);
+                        } catch (error) {
+                            console.warn('Failed to convert image to canvas:', imageUrl, error);
+                            rej(error);
+                        }
+                    };
+                    
+                    img.onerror = (error) => {
+                        console.warn(`Failed to load image (corsMode: ${corsMode}):`, imageUrl, error);
+                        rej(error);
+                    };
+                    
+                    img.src = imageUrl;
+                });
             };
             
             // Set a timeout to avoid hanging on slow/unresponsive images
-            setTimeout(() => {
-                reject(new Error('Image load timeout'));
-            }, 10000); // 10 second timeout
+            const timeoutPromise = new Promise((_, rej) => {
+                setTimeout(() => {
+                    rej(new Error('Image load timeout'));
+                }, 15000); // 15 second timeout
+            });
             
-            img.src = url;
+            // Try with CORS first, then without CORS, then with proxy if that fails
+            Promise.race([
+                tryLoadImage(url, true).catch(() => {
+                    console.log(`CORS failed for ${url}, trying without CORS...`);
+                    return tryLoadImage(url, false);
+                }).catch(() => {
+                    console.log(`Direct loading failed for ${url}, trying with proxy...`);
+                    // Try using the image proxy for CORS issues
+                    const proxyUrl = `https://email2pdfv2-image-proxy.vercel.app/api/proxy?url=${encodeURIComponent(url)}`;
+                    return tryLoadImage(proxyUrl, false);
+                }),
+                timeoutPromise
+            ]).then(resolve).catch(reject);
         });
     }
     
@@ -961,8 +1028,56 @@ async function createHtmlToPdfmakePdf(metaHtml, htmlBody, attachments) {
         // Handle any remaining font references in CSS
         fullHtml = fullHtml.replace(/(Aptos|Calibri|Arial|Times New Roman|Helvetica|serif|sans-serif|monospace)/gi, 'Roboto');
         
-        // Pre-process HTML to handle external images by converting them to data URLs
+        // Try imagesByReference first, then fallback to base64 conversion
+        console.log('Attempting to use imagesByReference for better image handling...');
+        
+        try {
+            // First attempt: Use imagesByReference which lets pdfMake handle images directly
+            const pdfContentWithRefs = htmlToPdfmake(fullHtml, {
+                tableAutoSize: true,
+                removeExtraBlanks: true,
+                imagesByReference: true, // Let pdfMake handle images by reference
+                fontMapping: {
+                    'Aptos': 'Roboto',
+                    'Calibri': 'Roboto', 
+                    'Arial': 'Roboto',
+                    'Times New Roman': 'Roboto',
+                    'Helvetica': 'Roboto',
+                    'serif': 'Roboto',
+                    'sans-serif': 'Roboto',
+                    'monospace': 'Roboto'
+                }
+            });
+            
+            // Check if we have images that need to be processed
+            if (pdfContentWithRefs.images && Object.keys(pdfContentWithRefs.images).length > 0) {
+                console.log(`Found ${Object.keys(pdfContentWithRefs.images).length} images to process with imagesByReference`);
+                console.log('Images found:', Object.keys(pdfContentWithRefs.images));
+                
+                // Create document definition with images
+                const docDefinition = {
+                    content: pdfContentWithRefs.content,
+                    images: pdfContentWithRefs.images,
+                    styles: fontMappingStyles,
+                    defaultStyle: {
+                        font: 'Roboto'
+                    }
+                };
+                
+                console.log('Creating PDF with images via imagesByReference...');
+                pdfMake.createPdf(docDefinition).download('email.pdf');
+                console.log('PDF generated successfully with imagesByReference!');
+                return;
+            } else {
+                console.log('No images found with imagesByReference, proceeding with base64 conversion...');
+            }
+        } catch (error) {
+            console.warn('imagesByReference approach failed, falling back to base64 conversion:', error);
+        }
+        
+        // Fallback: Pre-process HTML to handle external images by converting them to data URLs
         // This allows pdfMake to handle images properly instead of throwing VFS errors
+        console.log('Converting external images to base64 data URLs...');
         fullHtml = await convertExternalImagesToDataUrls(fullHtml);
         
         // Configure html-to-pdfmake options with font mapping and conservative image handling
