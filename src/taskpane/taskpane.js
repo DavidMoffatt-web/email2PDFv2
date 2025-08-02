@@ -1,7 +1,7 @@
 console.log('taskpane.js loaded');
 
 // Load pdf-lib from CDN for browser compatibility
-let PDFDocument, StandardFonts;
+let PDFDocument, StandardFonts, rgb;
 console.log('Loading PDFLib script...');
 const pdfLibScript = document.createElement('script');
 pdfLibScript.src = 'https://cdn.jsdelivr.net/npm/pdf-lib/dist/pdf-lib.min.js';
@@ -9,6 +9,7 @@ pdfLibScript.onload = () => {
     console.log('PDFLib script loaded.');
     PDFDocument = window.PDFLib.PDFDocument;
     StandardFonts = window.PDFLib.StandardFonts;
+    rgb = window.PDFLib.rgb;
 };
 document.head.appendChild(pdfLibScript);
 
@@ -170,7 +171,8 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
                     y,
                     size: fontSize,
                     font,
-                    color: { r: 0, g: 0, b: 0 },
+                    // Use rgb function instead of color object
+                    color: rgb(0, 0, 0),
                 });
             }
             
