@@ -918,6 +918,28 @@ async function convertExternalImagesToDataUrls(html) {
     return updatedHtml;
 }
 
+// Helper function to get attachment content as base64
+async function getAttachmentContent(attachment) {
+    return new Promise((resolve, reject) => {
+        console.log(`Fetching content for attachment: ${attachment.name}`);
+        
+        Office.context.mailbox.item.getAttachmentContentAsync(
+            attachment.id,
+            { asyncContext: attachment },
+            function(result) {
+                if (result.status === Office.AsyncResultStatus.Succeeded) {
+                    console.log(`Successfully retrieved content for attachment: ${attachment.name}`);
+                    // The content is already base64 encoded from the API
+                    resolve(result.value.content);
+                } else {
+                    console.error(`Failed to get attachment content for ${attachment.name}:`, result.error);
+                    reject(new Error(`Failed to get attachment content: ${result.error.message}`));
+                }
+            }
+        );
+    });
+}
+
 async function createHtmlToPdfmakePdf(metaHtml, htmlBody, attachments) {
     console.log('Creating PDF with html-to-pdfmake');
     
@@ -1578,9 +1600,44 @@ async function createServerPdf(metaHtml, htmlBody, attachments) {
         </body>
         </html>`;
         
+        // Prepare attachments with actual content for server processing
+        const serverAttachments = [];
+        if (attachments && attachments.length > 0) {
+            console.log('Getting attachment content for server processing...');
+            
+            for (const attachment of attachments) {
+                try {
+                    console.log(`Getting content for attachment: ${attachment.name}`);
+                    const attachmentContent = await getAttachmentContent(attachment);
+                    if (attachmentContent) {
+                        serverAttachments.push({
+                            name: attachment.name,
+                            content: attachmentContent, // Base64 encoded content
+                            contentType: attachment.contentType || 'application/octet-stream'
+                        });
+                        console.log(`Successfully prepared attachment: ${attachment.name}`);
+                    }
+                } catch (error) {
+                    console.warn(`Failed to get content for attachment ${attachment.name}:`, error);
+                    // Add metadata-only entry for failed attachments
+                    serverAttachments.push({
+                        name: attachment.name,
+                        content: '', // Empty content will trigger placeholder PDF
+                        contentType: attachment.contentType || 'application/octet-stream'
+                    });
+                }
+            }
+        }
+        
+        // Get PDF mode from UI
+        const pdfMode = document.getElementById('pdfMode')?.value || 'full';
+        const serverMode = pdfMode === 'individual' ? 'individual' : 'full';
+        
         // Prepare the request payload
         const payload = {
             html: fullHtml,
+            attachments: serverAttachments,
+            mode: serverMode,
             options: {
                 page_size: 'A4',
                 margin: '20mm',
@@ -1588,16 +1645,16 @@ async function createServerPdf(metaHtml, htmlBody, attachments) {
             }
         };
         
-        console.log('Sending request to PDF server...');
+        console.log(`Sending request to PDF server with ${serverAttachments.length} attachments in ${serverMode} mode...`);
         
-        // Send request to server
-        const response = await fetch(`${serverUrl}/convert-binary`, {
+        // Send request to server with attachment conversion
+        const response = await fetch(`${serverUrl}/convert-with-attachments`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify(payload),
-            signal: AbortSignal.timeout(30000) // 30 second timeout for PDF generation
+            signal: AbortSignal.timeout(60000) // 60 second timeout for attachment processing
         });
         
         if (!response.ok) {
@@ -1605,25 +1662,54 @@ async function createServerPdf(metaHtml, htmlBody, attachments) {
             throw new Error(`Server error: ${response.status} - ${errorText}`);
         }
         
-        // Get the PDF blob (now raw binary instead of JSON)
-        const pdfBlob = await response.blob();
+        const contentType = response.headers.get('content-type');
         
-        if (pdfBlob.size === 0) {
-            throw new Error('Server returned empty PDF');
+        if (contentType && contentType.includes('application/zip')) {
+            // Individual mode returns a ZIP file
+            console.log('Received ZIP file from server (individual mode)');
+            const zipBlob = await response.blob();
+            
+            if (zipBlob.size === 0) {
+                throw new Error('Server returned empty ZIP file');
+            }
+            
+            // Create download link for ZIP
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(zipBlob);
+            link.download = (Office.context.mailbox.item.subject || 'email') + '-pdfs.zip';
+            link.click();
+            
+            // Clean up the blob URL
+            setTimeout(() => {
+                URL.revokeObjectURL(link.href);
+            }, 1000);
+            
+            console.log('ZIP file downloaded successfully');
+            
+        } else {
+            // Full mode returns a single merged PDF
+            console.log('Received merged PDF from server (full mode)');
+            const pdfBlob = await response.blob();
+            
+            if (pdfBlob.size === 0) {
+                throw new Error('Server returned empty PDF');
+            }
+            
+            // Create download link for PDF
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(pdfBlob);
+            link.download = (Office.context.mailbox.item.subject || 'email') + '-with-attachments.pdf';
+            link.click();
+            
+            // Clean up the blob URL
+            setTimeout(() => {
+                URL.revokeObjectURL(link.href);
+            }, 1000);
+            
+            console.log('Merged PDF downloaded successfully');
         }
         
-        // Create download link
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(pdfBlob);
-        link.download = (Office.context.mailbox.item.subject || 'email') + '.pdf';
-        link.click();
-        
-        // Clean up the blob URL
-        setTimeout(() => {
-            URL.revokeObjectURL(link.href);
-        }, 1000);
-        
-        console.log('PDF created successfully with server-side generation');
+        console.log('Server PDF generation completed successfully');
         
     } catch (err) {
         console.error('Error creating PDF with server:', err);

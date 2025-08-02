@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Attachment Conversion</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 40px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        button {
+            background-color: #0078d4;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 10px 0;
+        }
+        button:hover {
+            background-color: #106ebe;
+        }
+        #results {
+            margin-top: 20px;
+            padding: 20px;
+            background-color: #f5f5f5;
+            border-radius: 4px;
+        }
+        .test-section {
+            border: 1px solid #ddd;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Test Attachment Conversion Server</h1>
+        
+        <div class="test-section">
+            <h2>Test 1: Simple HTML Conversion</h2>
+            <p>This test converts a simple HTML document without attachments.</p>
+            <button onclick="testSimpleConversion()">Test Simple HTML to PDF</button>
+        </div>
+        
+        <div class="test-section">
+            <h2>Test 2: Individual Mode</h2>
+            <p>This test uses individual mode to create separate PDFs.</p>
+            <button onclick="testIndividualMode()">Test Individual Mode</button>
+        </div>
+        
+        <div class="test-section">
+            <h2>Test 3: Full Mode with Mock Attachments</h2>
+            <p>This test simulates attachments being merged into one PDF.</p>
+            <button onclick="testFullModeWithAttachments()">Test Full Mode with Mock Attachments</button>
+        </div>
+        
+        <div id="results"></div>
+    </div>
+
+    <script>
+        const SERVER_URL = 'http://localhost:5000';
+        
+        function showResult(message, isError = false) {
+            const results = document.getElementById('results');
+            const timestamp = new Date().toLocaleTimeString();
+            const color = isError ? 'red' : 'green';
+            results.innerHTML += `<div style="color: ${color}; margin: 5px 0;">[${timestamp}] ${message}</div>`;
+            results.scrollTop = results.scrollHeight;
+        }
+        
+        async function testSimpleConversion() {
+            showResult('Testing simple HTML conversion...');
+            
+            try {
+                const payload = {
+                    html: `
+                        <html>
+                        <body>
+                            <h1>Test Email</h1>
+                            <p>This is a test email with some content.</p>
+                            <p>Testing server PDF generation.</p>
+                        </body>
+                        </html>
+                    `,
+                    attachments: [],
+                    mode: 'full'
+                };
+                
+                const response = await fetch(`${SERVER_URL}/convert-with-attachments`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(payload)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Server error: ${response.status}`);
+                }
+                
+                const pdfBlob = await response.blob();
+                downloadPDF(pdfBlob, 'test-simple.pdf');
+                
+                showResult('✓ Simple conversion test successful');
+                
+            } catch (error) {
+                showResult(`✗ Simple conversion test failed: ${error.message}`, true);
+            }
+        }
+        
+        async function testIndividualMode() {
+            showResult('Testing individual mode...');
+            
+            try {
+                const payload = {
+                    html: `
+                        <html>
+                        <body>
+                            <h1>Email with Individual Mode</h1>
+                            <p>This email should be split into individual PDFs.</p>
+                        </body>
+                        </html>
+                    `,
+                    attachments: [
+                        {
+                            name: 'test-text.txt',
+                            content: btoa('This is a test text file content.'),
+                            contentType: 'text/plain'
+                        }
+                    ],
+                    mode: 'individual'
+                };
+                
+                const response = await fetch(`${SERVER_URL}/convert-with-attachments`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(payload)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Server error: ${response.status}`);
+                }
+                
+                const zipBlob = await response.blob();
+                downloadPDF(zipBlob, 'test-individual.zip');
+                
+                showResult('✓ Individual mode test successful');
+                
+            } catch (error) {
+                showResult(`✗ Individual mode test failed: ${error.message}`, true);
+            }
+        }
+        
+        async function testFullModeWithAttachments() {
+            showResult('Testing full mode with mock attachments...');
+            
+            try {
+                const payload = {
+                    html: `
+                        <html>
+                        <body>
+                            <h1>Email with Attachments</h1>
+                            <p>This email has mock attachments that should be converted and merged.</p>
+                            <div style="margin: 20px 0; padding: 15px; background-color: #f0f8ff; border-left: 4px solid #007acc;">
+                                <h3>📎 Attachments</h3>
+                                <p>The following attachments will be converted to PDF and merged:</p>
+                                <ul>
+                                    <li>test-document.txt - Text file</li>
+                                    <li>test-markdown.md - Markdown file</li>
+                                </ul>
+                            </div>
+                        </body>
+                        </html>
+                    `,
+                    attachments: [
+                        {
+                            name: 'test-document.txt',
+                            content: btoa('This is a test document.\\nIt has multiple lines.\\nAnd should be converted to PDF.'),
+                            contentType: 'text/plain'
+                        },
+                        {
+                            name: 'test-markdown.md',
+                            content: btoa('# Test Markdown\\n\\nThis is a **markdown** document.\\n\\n- Item 1\\n- Item 2\\n- Item 3'),
+                            contentType: 'text/markdown'
+                        }
+                    ],
+                    mode: 'full'
+                };
+                
+                const response = await fetch(`${SERVER_URL}/convert-with-attachments`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(payload)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Server error: ${response.status}`);
+                }
+                
+                const pdfBlob = await response.blob();
+                downloadPDF(pdfBlob, 'test-full-with-attachments.pdf');
+                
+                showResult('✓ Full mode with attachments test successful');
+                
+            } catch (error) {
+                showResult(`✗ Full mode with attachments test failed: ${error.message}`, true);
+            }
+        }
+        
+        function downloadPDF(blob, filename) {
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = filename;
+            link.click();
+            
+            // Clean up
+            setTimeout(() => {
+                URL.revokeObjectURL(link.href);
+            }, 1000);
+        }
+        
+        // Show initial message
+        showResult('Ready to test attachment conversion server');
+    </script>
+</body>
+</html>

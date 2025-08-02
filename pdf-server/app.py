@@ -485,6 +485,485 @@ def convert_to_pdf_file():
             'error': 'Internal server error during PDF generation'
         }), 500
 
+@app.route('/convert-with-attachments', methods=['POST'])
+def convert_with_attachments():
+    """
+    Convert HTML content to PDF with attachment processing
+    
+    Expected JSON payload:
+    {
+        "html": "HTML content",
+        "attachments": [
+            {
+                "name": "filename.docx",
+                "content": "base64_encoded_content",
+                "contentType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            }
+        ],
+        "mode": "full|individual", 
+        "options": {
+            "page_size": "A4",
+            "margin": "20mm"
+        }
+    }
+    """
+    try:
+        # Validate request
+        if not request.is_json:
+            raise BadRequest("Content-Type must be application/json")
+        
+        data = request.get_json()
+        if not data or 'html' not in data:
+            raise BadRequest("Missing 'html' field in request body")
+        
+        html_content = data['html']
+        attachments = data.get('attachments', [])
+        mode = data.get('mode', 'full')
+        css_content = data.get('css', '')
+        options = data.get('options', {})
+        
+        logger.info(f"Processing conversion with {len(attachments)} attachments, mode: {mode}")
+        
+        # Default options
+        page_size = options.get('page_size', 'A4')
+        margin = options.get('margin', '20mm')
+        orientation = options.get('orientation', 'portrait')
+        
+        if mode == 'individual':
+            # Return multiple PDFs as a ZIP file
+            return handle_individual_pdfs(html_content, attachments, css_content, page_size, margin, orientation)
+        else:
+            # Merge everything into one PDF
+            return handle_full_pdf(html_content, attachments, css_content, page_size, margin, orientation)
+            
+    except BadRequest as e:
+        logger.warning(f"Bad request: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 400
+    
+    except Exception as e:
+        logger.error(f"Error processing attachments: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': 'Internal server error during attachment processing'
+        }), 500
+
+def handle_full_pdf(html_content, attachments, css_content, page_size, margin, orientation):
+    """Handle full PDF mode - merge email and attachments into one PDF"""
+    import io
+    from PyPDF2 import PdfMerger
+    
+    try:
+        merger = PdfMerger()
+        
+        # First, create PDF from email HTML
+        email_pdf_content = create_pdf_from_html(html_content, css_content, page_size, margin, orientation)
+        merger.append(io.BytesIO(email_pdf_content))
+        
+        # Process each attachment and convert to PDF
+        for i, attachment in enumerate(attachments):
+            try:
+                logger.info(f"Processing attachment {i+1}: {attachment.get('name', 'unknown')}")
+                attachment_pdf = convert_attachment_to_pdf(attachment, page_size, margin, orientation)
+                if attachment_pdf:
+                    merger.append(io.BytesIO(attachment_pdf))
+            except Exception as e:
+                logger.warning(f"Failed to convert attachment {attachment.get('name', 'unknown')}: {str(e)}")
+                # Continue with other attachments
+        
+        # Write merged PDF to bytes
+        output = io.BytesIO()
+        merger.write(output)
+        merger.close()
+        
+        pdf_content = output.getvalue()
+        output.close()
+        
+        logger.info(f"Merged PDF generated successfully, size: {len(pdf_content)} bytes")
+        
+        return Response(
+            pdf_content,
+            mimetype='application/pdf',
+            headers={
+                'Content-Disposition': 'attachment; filename="email-with-attachments.pdf"',
+                'Content-Length': str(len(pdf_content))
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Error creating merged PDF: {str(e)}")
+        raise
+
+def handle_individual_pdfs(html_content, attachments, css_content, page_size, margin, orientation):
+    """Handle individual PDF mode - return ZIP with separate PDFs"""
+    import zipfile
+    import io
+    
+    try:
+        # Create ZIP file in memory
+        zip_buffer = io.BytesIO()
+        
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            # Add email PDF
+            email_pdf = create_pdf_from_html(html_content, css_content, page_size, margin, orientation)
+            zip_file.writestr("email.pdf", email_pdf)
+            
+            # Add each attachment as separate PDF
+            for i, attachment in enumerate(attachments):
+                try:
+                    attachment_name = attachment.get('name', f'attachment_{i+1}')
+                    safe_name = "".join(c for c in attachment_name if c.isalnum() or c in "._- ").strip()
+                    pdf_name = f"{safe_name}.pdf"
+                    
+                    logger.info(f"Converting attachment to PDF: {attachment_name}")
+                    attachment_pdf = convert_attachment_to_pdf(attachment, page_size, margin, orientation)
+                    
+                    if attachment_pdf:
+                        zip_file.writestr(pdf_name, attachment_pdf)
+                    else:
+                        # Create a placeholder PDF if conversion failed
+                        placeholder_html = f"""
+                        <html><body style="font-family: Arial, sans-serif; padding: 20px;">
+                        <h2>Attachment: {attachment_name}</h2>
+                        <p><strong>Type:</strong> {attachment.get('contentType', 'Unknown')}</p>
+                        <p><strong>Status:</strong> Could not convert to PDF</p>
+                        <p>This attachment type is not supported for PDF conversion.</p>
+                        </body></html>
+                        """
+                        placeholder_pdf = create_pdf_from_html(placeholder_html, "", page_size, margin, orientation)
+                        zip_file.writestr(pdf_name, placeholder_pdf)
+                        
+                except Exception as e:
+                    logger.warning(f"Failed to process attachment {attachment.get('name', 'unknown')}: {str(e)}")
+        
+        zip_content = zip_buffer.getvalue()
+        zip_buffer.close()
+        
+        logger.info(f"ZIP with individual PDFs created, size: {len(zip_content)} bytes")
+        
+        return Response(
+            zip_content,
+            mimetype='application/zip',
+            headers={
+                'Content-Disposition': 'attachment; filename="email-pdfs.zip"',
+                'Content-Length': str(len(zip_content))
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Error creating individual PDFs: {str(e)}")
+        raise
+
+def create_pdf_from_html(html_content, css_content, page_size, margin, orientation):
+    """Create PDF from HTML content"""
+    # Enhanced CSS with better styling
+    base_css = f"""
+    @page {{
+        size: {page_size} {orientation};
+        margin: {margin};
+    }}
+    
+    body {{
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        line-height: 1.6;
+        color: #333;
+        font-size: 11pt;
+    }}
+    
+    img {{
+        max-width: 100%;
+        height: auto;
+        display: block;
+        margin: 10px 0;
+    }}
+    
+    table {{
+        width: 100%;
+        border-collapse: collapse;
+        margin: 15px 0;
+    }}
+    
+    table, th, td {{
+        border: 1px solid #ddd;
+    }}
+    
+    th, td {{
+        padding: 8px;
+        text-align: left;
+    }}
+    
+    th {{
+        background-color: #f5f5f5;
+        font-weight: bold;
+    }}
+    """
+    
+    # Combine base CSS with custom CSS
+    final_css = base_css + "\n" + css_content
+    
+    # Create temporary file for PDF
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_pdf:
+        try:
+            # Generate PDF using WeasyPrint
+            html_doc = HTML(string=html_content)
+            css_doc = CSS(string=final_css)
+            
+            html_doc.write_pdf(
+                temp_pdf.name,
+                stylesheets=[css_doc],
+                optimize_images=True
+            )
+            
+            # Read PDF content
+            with open(temp_pdf.name, 'rb') as pdf_file:
+                pdf_content = pdf_file.read()
+            
+            return pdf_content
+            
+        finally:
+            # Clean up temporary file
+            try:
+                os.unlink(temp_pdf.name)
+            except OSError:
+                pass
+
+def convert_attachment_to_pdf(attachment, page_size, margin, orientation):
+    """Convert various attachment types to PDF"""
+    try:
+        name = attachment.get('name', '')
+        content_type = attachment.get('contentType', '')
+        content_b64 = attachment.get('content', '')
+        
+        if not content_b64:
+            logger.warning(f"No content provided for attachment: {name}")
+            return None
+        
+        # Decode base64 content
+        try:
+            content_bytes = base64.b64decode(content_b64)
+        except Exception as e:
+            logger.error(f"Failed to decode base64 content for {name}: {str(e)}")
+            return None
+        
+        logger.info(f"Converting {name} ({content_type}) to PDF")
+        
+        # Handle different file types
+        if content_type in ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/msword']:
+            return convert_docx_to_pdf(content_bytes, name, page_size, margin, orientation)
+        elif content_type in ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel']:
+            return convert_excel_to_pdf(content_bytes, name, page_size, margin, orientation)
+        elif content_type == 'application/pdf':
+            return content_bytes  # Already PDF
+        elif content_type.startswith('image/'):
+            return convert_image_to_pdf(content_bytes, name, page_size, margin, orientation)
+        elif content_type.startswith('text/'):
+            return convert_text_to_pdf(content_bytes, name, page_size, margin, orientation)
+        else:
+            logger.warning(f"Unsupported content type for PDF conversion: {content_type}")
+            return create_unsupported_file_pdf(name, content_type, page_size, margin, orientation)
+            
+    except Exception as e:
+        logger.error(f"Error converting attachment {attachment.get('name', 'unknown')}: {str(e)}")
+        return None
+
+def convert_docx_to_pdf(content_bytes, name, page_size, margin, orientation):
+    """Convert DOCX to PDF"""
+    try:
+        from docx import Document
+        import io
+        
+        # Load DOCX document
+        doc = Document(io.BytesIO(content_bytes))
+        
+        # Extract text and basic formatting
+        html_content = f"""
+        <html>
+        <head>
+            <title>{name}</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; line-height: 1.6; margin: 20px; }}
+                h1, h2, h3 {{ color: #333; }}
+                p {{ margin: 10px 0; }}
+            </style>
+        </head>
+        <body>
+        <h1>Document: {name}</h1>
+        """
+        
+        # Extract paragraphs
+        for paragraph in doc.paragraphs:
+            if paragraph.text.strip():
+                # Simple heading detection
+                if paragraph.style.name.startswith('Heading'):
+                    level = paragraph.style.name.replace('Heading ', '') or '1'
+                    html_content += f"<h{level}>{paragraph.text}</h{level}>"
+                else:
+                    html_content += f"<p>{paragraph.text}</p>"
+        
+        html_content += "</body></html>"
+        
+        # Convert to PDF
+        return create_pdf_from_html(html_content, "", page_size, margin, orientation)
+        
+    except Exception as e:
+        logger.error(f"Error converting DOCX {name}: {str(e)}")
+        return create_unsupported_file_pdf(name, "DOCX Document", page_size, margin, orientation)
+
+def convert_excel_to_pdf(content_bytes, name, page_size, margin, orientation):
+    """Convert Excel to PDF"""
+    try:
+        from openpyxl import load_workbook
+        import io
+        
+        # Load Excel workbook
+        wb = load_workbook(io.BytesIO(content_bytes), read_only=True)
+        
+        html_content = f"""
+        <html>
+        <head>
+            <title>{name}</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                table {{ border-collapse: collapse; width: 100%; margin: 20px 0; }}
+                th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+                th {{ background-color: #f2f2f2; font-weight: bold; }}
+                h2 {{ color: #333; }}
+            </style>
+        </head>
+        <body>
+        <h1>Spreadsheet: {name}</h1>
+        """
+        
+        # Process each worksheet
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            html_content += f"<h2>Sheet: {sheet_name}</h2>"
+            html_content += "<table>"
+            
+            # Get data from sheet (limit to reasonable size)
+            rows = list(ws.iter_rows(max_row=100, max_col=20, values_only=True))
+            
+            for i, row in enumerate(rows):
+                if any(cell is not None for cell in row):
+                    html_content += "<tr>"
+                    for cell in row:
+                        cell_value = str(cell) if cell is not None else ""
+                        tag = "th" if i == 0 else "td"
+                        html_content += f"<{tag}>{cell_value}</{tag}>"
+                    html_content += "</tr>"
+            
+            html_content += "</table>"
+        
+        html_content += "</body></html>"
+        
+        # Convert to PDF
+        return create_pdf_from_html(html_content, "", page_size, margin, orientation)
+        
+    except Exception as e:
+        logger.error(f"Error converting Excel {name}: {str(e)}")
+        return create_unsupported_file_pdf(name, "Excel Spreadsheet", page_size, margin, orientation)
+
+def convert_image_to_pdf(content_bytes, name, page_size, margin, orientation):
+    """Convert image to PDF"""
+    try:
+        import base64
+        
+        # Create data URL for the image
+        image_b64 = base64.b64encode(content_bytes).decode()
+        
+        html_content = f"""
+        <html>
+        <head>
+            <title>{name}</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; text-align: center; }}
+                img {{ max-width: 100%; max-height: 80vh; }}
+                h1 {{ color: #333; }}
+            </style>
+        </head>
+        <body>
+        <h1>Image: {name}</h1>
+        <img src="data:image/png;base64,{image_b64}" alt="{name}">
+        </body>
+        </html>
+        """
+        
+        return create_pdf_from_html(html_content, "", page_size, margin, orientation)
+        
+    except Exception as e:
+        logger.error(f"Error converting image {name}: {str(e)}")
+        return create_unsupported_file_pdf(name, "Image File", page_size, margin, orientation)
+
+def convert_text_to_pdf(content_bytes, name, page_size, margin, orientation):
+    """Convert text file to PDF"""
+    try:
+        # Try to decode as text
+        try:
+            text_content = content_bytes.decode('utf-8')
+        except UnicodeDecodeError:
+            try:
+                text_content = content_bytes.decode('latin-1')
+            except UnicodeDecodeError:
+                text_content = str(content_bytes)
+        
+        # Convert line breaks to HTML
+        text_content = text_content.replace('\n', '<br>')
+        
+        html_content = f"""
+        <html>
+        <head>
+            <title>{name}</title>
+            <style>
+                body {{ font-family: monospace; margin: 20px; line-height: 1.4; }}
+                h1 {{ color: #333; font-family: Arial, sans-serif; }}
+                .content {{ white-space: pre-wrap; }}
+            </style>
+        </head>
+        <body>
+        <h1>Text File: {name}</h1>
+        <div class="content">{text_content}</div>
+        </body>
+        </html>
+        """
+        
+        return create_pdf_from_html(html_content, "", page_size, margin, orientation)
+        
+    except Exception as e:
+        logger.error(f"Error converting text file {name}: {str(e)}")
+        return create_unsupported_file_pdf(name, "Text File", page_size, margin, orientation)
+
+def create_unsupported_file_pdf(name, file_type, page_size, margin, orientation):
+    """Create a PDF for unsupported file types"""
+    html_content = f"""
+    <html>
+    <head>
+        <title>{name}</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; margin: 40px; text-align: center; }}
+            .container {{ border: 2px dashed #ccc; padding: 40px; margin: 20px 0; }}
+            h1 {{ color: #333; }}
+            .file-icon {{ font-size: 48px; margin: 20px 0; }}
+            .details {{ background-color: #f5f5f5; padding: 20px; margin: 20px 0; text-align: left; }}
+        </style>
+    </head>
+    <body>
+    <div class="container">
+        <div class="file-icon">📄</div>
+        <h1>Attachment: {name}</h1>
+        <p><strong>File Type:</strong> {file_type}</p>
+        <div class="details">
+            <p><strong>Note:</strong> This file type cannot be automatically converted to PDF content.</p>
+            <p>The original file was attached to the email and would need to be opened with appropriate software.</p>
+        </div>
+    </div>
+    </body>
+    </html>
+    """
+    
+    return create_pdf_from_html(html_content, "", page_size, margin, orientation)
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     debug = os.environ.get('DEBUG', 'false').lower() == 'true'
