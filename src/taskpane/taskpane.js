@@ -1039,6 +1039,19 @@ async function createHtmlToPdfmakePdf(metaHtml, htmlBody, attachments) {
         fullHtml = fullHtml.replace(/<img(?![^>]*style\s*=)([^>]*?)>/gi, 
             '<img$1 style="max-width: 400px; max-height: 300px; width: auto; height: auto; display: block; margin: 10px auto;">');
         
+        // Fix problematic table structures that cause pdfMake preprocessing errors
+        // Remove empty table elements that can cause issues
+        fullHtml = fullHtml.replace(/<table[^>]*>\s*<\/table>/gi, '');
+        fullHtml = fullHtml.replace(/<tr[^>]*>\s*<\/tr>/gi, '');
+        fullHtml = fullHtml.replace(/<td[^>]*>\s*<\/td>/gi, '<td>&nbsp;</td>');
+        fullHtml = fullHtml.replace(/<th[^>]*>\s*<\/th>/gi, '<th>&nbsp;</th>');
+        
+        // Ensure all table rows have at least one cell
+        fullHtml = fullHtml.replace(/<tr([^>]*)>(?!.*<t[dh])/gi, '<tr$1><td>&nbsp;</td>');
+        
+        // Remove nested tables that can cause issues
+        fullHtml = fullHtml.replace(/<table[^>]*>[\s\S]*?<table[^>]*>[\s\S]*?<\/table>[\s\S]*?<\/table>/gi, '<!-- Nested table removed -->');
+        
         console.log('HTML cleaning completed');
         
         // Pre-process HTML to replace all font-family references with Roboto
@@ -1082,7 +1095,22 @@ async function createHtmlToPdfmakePdf(metaHtml, htmlBody, attachments) {
                 const docDefinition = {
                     content: pdfContentWithRefs.content,
                     images: pdfContentWithRefs.images,
-                    styles: fontMappingStyles,
+                    styles: {
+                        header: {
+                            fontSize: 12,
+                            bold: true,
+                            margin: [0, 0, 0, 8],
+                            font: 'Roboto',
+                            color: '#007acc'
+                        },
+                        subheader: {
+                            fontSize: 11,
+                            bold: true,
+                            margin: [0, 5, 0, 5],
+                            font: 'Roboto',
+                            color: '#333'
+                        }
+                    },
                     defaultStyle: {
                         font: 'Roboto'
                     }
@@ -1109,6 +1137,15 @@ async function createHtmlToPdfmakePdf(metaHtml, htmlBody, attachments) {
             tableAutoSize: true,
             removeExtraBlanks: true,
             imagesByReference: false, // Keep disabled as we're now using data URLs
+            ignoreExtraColumns: true, // Ignore extra columns in tables
+            ignoreExtraRows: true, // Ignore extra rows in tables
+            replaceText: function(text, node) {
+                // Clean text and handle encoding issues
+                if (typeof text === 'string') {
+                    return text.replace(/\u00A0/g, ' ').replace(/\s+/g, ' ').trim();
+                }
+                return text;
+            },
             fontMapping: {
                 'Aptos': 'Roboto',
                 'Calibri': 'Roboto', 
@@ -1146,11 +1183,65 @@ async function createHtmlToPdfmakePdf(metaHtml, htmlBody, attachments) {
         };
         
         // Convert HTML to pdfmake format
+        console.log('Converting HTML to pdfmake format...');
         const pdfmakeContent = htmlToPdfmake(fullHtml, options);
+        
+        // Validate and clean pdfmake content to prevent preprocessing errors
+        const validateAndCleanContent = (content) => {
+            if (Array.isArray(content)) {
+                return content.map(validateAndCleanContent).filter(item => item !== null);
+            }
+            
+            if (typeof content === 'object' && content !== null) {
+                // Handle table objects
+                if (content.table) {
+                    // Ensure table has valid structure
+                    if (!content.table.body || !Array.isArray(content.table.body) || content.table.body.length === 0) {
+                        console.warn('Removing invalid table with no body');
+                        return null;
+                    }
+                    
+                    // Validate each row has cells
+                    content.table.body = content.table.body.filter(row => {
+                        return Array.isArray(row) && row.length > 0;
+                    });
+                    
+                    // If no valid rows remain, remove the table
+                    if (content.table.body.length === 0) {
+                        console.warn('Removing table with no valid rows');
+                        return null;
+                    }
+                    
+                    // Ensure all rows have the same number of columns
+                    const maxCols = Math.max(...content.table.body.map(row => row.length));
+                    content.table.body = content.table.body.map(row => {
+                        while (row.length < maxCols) {
+                            row.push('');
+                        }
+                        return row;
+                    });
+                }
+                
+                // Recursively validate other properties
+                const cleanedContent = {};
+                for (const [key, value] of Object.entries(content)) {
+                    const cleanedValue = validateAndCleanContent(value);
+                    if (cleanedValue !== null) {
+                        cleanedContent[key] = cleanedValue;
+                    }
+                }
+                return cleanedContent;
+            }
+            
+            return content;
+        };
+        
+        const cleanedContent = validateAndCleanContent(pdfmakeContent);
+        console.log('Content validation and cleaning completed');
         
         // Create the document definition
         const docDefinition = {
-            content: pdfmakeContent,
+            content: cleanedContent,
             defaultStyle: {
                 fontSize: 10,
                 lineHeight: 1.2,
@@ -1196,11 +1287,59 @@ async function createHtmlToPdfmakePdf(metaHtml, htmlBody, attachments) {
         
         // Generate and download the PDF
         try {
+            console.log('Creating PDF document...');
             pdfMake.createPdf(docDefinition).download((Office.context.mailbox.item.subject || 'email') + '.pdf');
             console.log('PDF created successfully with html-to-pdfmake');
-        } catch (error) {
-            console.error('PDF creation failed:', error);
-            throw error;
+        } catch (pdfError) {
+            console.error('PDF creation failed with cleaned content, trying simplified fallback:', pdfError);
+            
+            // Create a simplified fallback document with just text content
+            const fallbackContent = [
+                { text: 'Email Details', style: 'header' },
+                ...emailDetails.map(detail => ({ text: detail, fontSize: 10, margin: [0, 2] })),
+                { text: '\nMessage Content', style: 'header', marginTop: 15 },
+                { text: stripHtml(htmlBody), fontSize: 10, margin: [0, 5], lineHeight: 1.3 }
+            ];
+            
+            const fallbackDocDefinition = {
+                content: fallbackContent,
+                defaultStyle: {
+                    fontSize: 10,
+                    lineHeight: 1.2,
+                    font: 'Roboto',
+                    color: '#333'
+                },
+                styles: {
+                    header: {
+                        fontSize: 12,
+                        bold: true,
+                        margin: [0, 0, 0, 8],
+                        font: 'Roboto',
+                        color: '#007acc'
+                    }
+                },
+                pageSize: 'A4',
+                pageMargins: [40, 50, 40, 60],
+                footer: function(currentPage, pageCount) {
+                    return {
+                        text: `Generated by Email2PDF • ${new Date().toLocaleDateString()} • Page ${currentPage} of ${pageCount}`,
+                        alignment: 'center',
+                        fontSize: 8,
+                        color: '#888',
+                        margin: [0, 10, 0, 0],
+                        font: 'Roboto'
+                    };
+                }
+            };
+            
+            try {
+                console.log('Creating fallback PDF...');
+                pdfMake.createPdf(fallbackDocDefinition).download((Office.context.mailbox.item.subject || 'email') + '.pdf');
+                console.log('Fallback PDF created successfully');
+            } catch (fallbackError) {
+                console.error('Both PDF creation attempts failed:', fallbackError);
+                throw fallbackError;
+            }
         }
     } catch (err) {
         console.error('Error creating PDF with html-to-pdfmake:', err);
