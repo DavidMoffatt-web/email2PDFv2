@@ -1631,7 +1631,7 @@ async function createServerPdf(metaHtml, htmlBody, attachments) {
         
         // Get PDF mode from UI
         const pdfMode = document.getElementById('pdfMode')?.value || 'full';
-        const serverMode = pdfMode === 'individual' ? 'individual' : 'full';
+        const serverMode = (pdfMode === 'individual' || pdfMode === 'images') ? 'individual' : 'full';
         
         // Prepare the request payload
         const payload = {
@@ -2015,10 +2015,12 @@ function initializeApp() {
                                 }
                             } else if (mode === 'individual') {
                                 // Individual PDFs mode: separate PDF for email and each attachment
-                                await createIndividualPdfs(metaHtml + htmlBody, attachments, imgSources, false, metaHtml, engine);
+                                // Use server-pdf engine for individual mode to handle attachment conversion
+                                await createServerPdf(metaHtml, htmlBody, attachments);
                             } else if (mode === 'images') {
                                 // Images mode: separate PDF for attachments + each embedded image
-                                await createIndividualPdfs(metaHtml + htmlBody, attachments, imgSources, true, metaHtml, engine);
+                                // Use server-pdf engine for images mode to handle attachment conversion
+                                await createServerPdf(metaHtml, htmlBody, attachments);
                             } else {
                                 // Default to full mode
                                 if (engine === 'pdf-lib') {
