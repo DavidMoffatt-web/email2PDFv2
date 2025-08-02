@@ -1,4 +1,5 @@
 console.log('taskpane.js loaded');
+
 // Load pdf-lib from CDN for browser compatibility
 let PDFDocument, StandardFonts;
 console.log('Loading PDFLib script...');
@@ -11,11 +12,6 @@ pdfLibScript.onload = () => {
 };
 document.head.appendChild(pdfLibScript);
 
-
-
-
-
-// Attach handler after both Office.js and DOM are ready
 // Global error handler for debugging
 window.addEventListener('error', function(e) {
     console.error('Global JS error:', e.message, e);
@@ -24,29 +20,201 @@ window.addEventListener('unhandledrejection', function(e) {
     console.error('Unhandled promise rejection:', e.reason);
 });
 
+// Helper function to strip HTML tags
+function stripHtml(html) {
+    const temp = document.createElement('div');
+    temp.innerHTML = html;
+    return temp.textContent || temp.innerText || '';
+}
+
+// Helper function to split text into lines
+function splitTextIntoLines(text, font, fontSize, maxWidth) {
+    const lines = [];
+    const words = text.split(' ');
+    let currentLine = '';
+    
+    for (const word of words) {
+        const testLine = currentLine ? `${currentLine} ${word}` : word;
+        const width = font.widthOfTextAtSize(testLine, fontSize);
+        
+        if (width < maxWidth) {
+            currentLine = testLine;
+        } else {
+            lines.push(currentLine);
+            currentLine = word;
+        }
+        
+        if (word.includes('\n')) {
+            const parts = word.split('\n');
+            if (parts.length > 1) {
+                lines.push(currentLine);
+                currentLine = parts[parts.length - 1];
+            }
+        }
+    }
+    
+    if (currentLine) {
+        lines.push(currentLine);
+    }
+    
+    return lines;
+}
+
+// PDF generation function definitions
+async function createPdf(htmlContent, attachments, imgSources) {
+    console.log('Creating PDF with html2pdf');
+    const element = document.getElementById('emailToPdfDiv');
+    if (!element) {
+        console.error('Email to PDF container not found');
+        return;
+    }
+
+    element.innerHTML = htmlContent;
+    element.style.display = 'block';
+
+    const opt = {
+        margin: [0.5, 0.5],
+        filename: Office.context.mailbox.item.subject + '.pdf',
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { 
+            scale: 2,
+            useCORS: true,
+            logging: true
+        },
+        jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
+    };
+
+    try {
+        const pdf = await html2pdf().set(opt).from(element).save();
+        element.style.display = 'none';
+        element.innerHTML = '';
+        console.log('PDF created successfully');
+    } catch (err) {
+        console.error('Error creating PDF:', err);
+        element.style.display = 'none';
+        throw err;
+    }
+}
+
+async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
+    console.log('Creating PDF with pdf-lib (text-based)');
+    
+    try {
+        // Create a new PDF document
+        const pdfDoc = await PDFDocument.create();
+        const page = pdfDoc.addPage([595, 842]); // A4 size in points
+        const { width, height } = page.getSize();
+        
+        // Add a font
+        const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+        const fontSize = 10;
+        
+        // Create a simple text-based version
+        const textContent = stripHtml(metaHtml) + '\n\n' + stripHtml(htmlBody);
+        
+        // Split into lines and add to PDF
+        const lines = splitTextIntoLines(textContent, font, fontSize, width - 100);
+        let y = height - 50;
+        const lineHeight = fontSize * 1.2;
+        
+        for (const line of lines) {
+            if (y < 50) {
+                // Add a new page if we're near the bottom
+                const newPage = pdfDoc.addPage([595, 842]);
+                y = height - 50;
+            }
+            
+            page.drawText(line, {
+                x: 50,
+                y,
+                size: fontSize,
+                font,
+                color: { r: 0, g: 0, b: 0 },
+            });
+            
+            y -= lineHeight;
+        }
+        
+        // Save the PDF
+        const pdfBytes = await pdfDoc.save();
+        
+        // Create a download link
+        const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = Office.context.mailbox.item.subject + '.pdf';
+        link.click();
+        
+        console.log('PDF created successfully with pdf-lib');
+    } catch (err) {
+        console.error('Error creating PDF with pdf-lib:', err);
+        throw err;
+    }
+}
+
+async function createIndividualPdfs(htmlContent, attachments, imgSources, includeImages, metaHtml) {
+    console.log('Creating individual PDFs');
+    
+    // Create main email PDF
+    await createPdf(htmlContent, null, null);
+    
+    // If we have images and includeImages is true, create PDFs for each image
+    if (includeImages && imgSources && imgSources.length) {
+        for (let i = 0; i < imgSources.length; i++) {
+            const imgSrc = imgSources[i];
+            try {
+                const img = document.createElement('img');
+                img.src = imgSrc;
+                await new Promise(resolve => img.onload = resolve);
+                
+                const imgContainer = document.createElement('div');
+                imgContainer.style.padding = '20px';
+                imgContainer.appendChild(img);
+                
+                const imgWithMeta = document.createElement('div');
+                imgWithMeta.innerHTML = metaHtml + imgContainer.outerHTML;
+                
+                await createPdf(imgWithMeta.outerHTML, null, null);
+            } catch (err) {
+                console.error(`Error creating PDF for image ${i}:`, err);
+            }
+        }
+    }
+}
+
+// Main initialization - attach handlers after both Office.js and DOM are ready
 Office.onReady(() => {
     console.log('Office.js is ready');
-    document.addEventListener('DOMContentLoaded', function() {
-        try {
-            console.log('DOMContentLoaded event fired inside Office.onReady');
-            const btn = document.getElementById('convertBtn');
-            if (!btn) {
-                console.error('Convert button not found in DOM!');
-                return;
-            }
-            console.log('convertBtn found:', btn);
-            btn.onclick = async function() {
-                console.log('Convert button clicked.');
-                this.disabled = true;
-                this.textContent = 'Converting...';
-                // ...existing code...
-            };
-        } catch (err) {
-            console.error('Error in DOMContentLoaded handler:', err);
+    
+    // Make sure DOM is ready as well
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializeApp);
+    } else {
+        // DOM already ready
+        initializeApp();
+    }
+});
+
+// Initialize the application and attach event handlers
+function initializeApp() {
+    try {
+        console.log('Initializing app...');
+        
+        // Get button and attach click handler
+        const btn = document.getElementById('convertBtn');
+        if (!btn) {
+            console.error('Convert button not found in DOM!');
+            return;
         }
+        
+        console.log('convertBtn found:', btn);
+        
+        // Attach click handler
+        btn.onclick = async function() {
             console.log('Convert button clicked.');
             this.disabled = true;
             this.textContent = 'Converting...';
+            
             try {
                 // Helper to format a person as email (Name)
                 const formatPerson = (p) => {
@@ -57,8 +225,10 @@ Office.onReady(() => {
                     }
                     return p.emailAddress || p.displayName || '';
                 };
+                
                 // Helper to format a list
                 const formatList = (arr) => (arr && arr.length ? arr.map(formatPerson).join('; ') : '');
+                
                 // Gather metadata
                 const item = Office.context.mailbox.item;
                 const meta = {
@@ -68,6 +238,7 @@ Office.onReady(() => {
                     subject: item.subject || '',
                     date: (item.dateTimeCreated ? new Date(item.dateTimeCreated).toLocaleString() : '')
                 };
+                
                 const metaHtml = `<div style="background:#f5f5f5;padding:12px 18px 12px 18px;margin-bottom:18px;border-radius:6px;font-size:1em;line-height:1.5;">
                     <div><b>From:</b> ${meta.from}</div>
                     <div><b>To:</b> ${meta.to}</div>
@@ -187,8 +358,10 @@ Office.onReady(() => {
                 this.textContent = 'Convert Email to PDF';
             }
         };
-    });
-});
-// PDF generation logic moved into createPdf function
-// ...existing function definitions like createPdf, createPdfLibTextPdf, etc...
+        
+        console.log('Button click handler attached.');
+    } catch (err) {
+        console.error('Error in initializeApp:', err);
+    }
+}
 
