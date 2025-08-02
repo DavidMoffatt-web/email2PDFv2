@@ -216,6 +216,38 @@ def convert_image_to_pdf_with_gotenberg(image_data, filename, mime_type):
         logger.error(f"✗ Exception converting image {filename} to PDF: {str(e)}")
         return None
 
+def is_embedded_image(attachment, html_content):
+    """Check if an attachment is an embedded image (referenced by CID in HTML)"""
+    try:
+        # Check if the attachment name or content is referenced as a CID in the HTML
+        filename = attachment.get('name', '')
+        content_type = attachment.get('contentType', '')
+        
+        # Look for CID references in HTML
+        cid_pattern = r'cid:([^"\'>\s]+)'
+        cid_matches = re.findall(cid_pattern, html_content, re.IGNORECASE)
+        
+        # Check if this attachment matches any CID reference or is likely embedded
+        for cid in cid_matches:
+            if (cid in filename or 
+                filename in cid or 
+                (content_type.startswith('image/') and len(cid_matches) > 0)):
+                return True
+        
+        # Additional check: if it's an image with no file extension or generic name, it's likely embedded
+        if (content_type.startswith('image/') and 
+            (not filename or 
+             filename.lower() in ['image', 'image.jpg', 'image.png', 'image.jpeg'] or
+             filename.startswith('image') or
+             len(filename.split('.')) == 1)):  # No extension
+            return True
+            
+        return False
+        
+    except Exception as e:
+        logger.warning(f"Error checking if attachment is embedded: {str(e)}")
+        return False
+
 def resolve_cid_images_in_html(html_content, attachments):
     """Replace CID references in HTML with base64 data URLs"""
     try:
@@ -646,14 +678,20 @@ def convert_with_attachments():
             'content': email_pdf_content
         }]
         
-        # Convert each attachment to PDF if possible
+        # Convert each attachment to PDF if possible (but skip embedded images in full mode)
         converted_attachments = []
         for attachment in attachments:
             try:
-                # Decode base64 content
-                file_content = base64.b64decode(attachment['content'])
                 filename = attachment['name']
                 content_type = attachment.get('contentType', 'application/octet-stream')
+                
+                # In full mode, skip embedded images (they're already in the email content)
+                if mode == 'full' and is_embedded_image(attachment, html_content):
+                    logger.info(f"Skipping embedded image {filename} in full mode (already in email content)")
+                    continue
+                
+                # Decode base64 content
+                file_content = base64.b64decode(attachment['content'])
                 
                 logger.info(f"Processing attachment: {filename} ({content_type}, {len(file_content)} bytes)")
                 
