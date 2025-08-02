@@ -246,7 +246,104 @@ def convert_with_attachments():
         else:
             merged_pdf = email_pdf_content
         
-        # Return the merged PDF
+        # Return the merged PDF directly as a file
+        return send_file(
+            io.BytesIO(merged_pdf),
+            as_attachment=True,
+            download_name='email_with_attachments.pdf',
+            mimetype='application/pdf'
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in convert_with_attachments: {str(e)}")
+        return jsonify({'error': f'Failed to convert email with attachments: {str(e)}'}), 500
+
+@app.route('/convert-with-attachments-debug', methods=['POST'])
+def convert_with_attachments_debug():
+    """Convert HTML email to PDF and include converted attachments - returns JSON for testing"""
+    try:
+        data = request.get_json()
+        html_content = data.get('html', '')
+        attachments = data.get('attachments', [])
+        
+        if not html_content:
+            return jsonify({'error': 'No HTML content provided'}), 400
+        
+        # Convert main email HTML to PDF using WeasyPrint
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
+            weasyprint.HTML(string=html_content).write_pdf(temp_file.name)
+            
+            with open(temp_file.name, 'rb') as pdf_file:
+                email_pdf_content = pdf_file.read()
+            
+            os.unlink(temp_file.name)
+        
+        # Prepare list of PDFs to merge (starting with email PDF)
+        pdfs_to_merge = [{
+            'name': 'email.pdf',
+            'content': email_pdf_content
+        }]
+        
+        # Convert each attachment to PDF if possible
+        converted_attachments = []
+        for attachment in attachments:
+            try:
+                # Decode base64 content
+                file_content = base64.b64decode(attachment['content'])
+                filename = attachment['name']
+                content_type = attachment.get('contentType', 'application/octet-stream')
+                
+                logger.info(f"Processing attachment: {filename} ({content_type})")
+                
+                # Try to convert the file to PDF using Gotenberg
+                pdf_content = convert_file_to_pdf_with_gotenberg(file_content, filename, content_type)
+                
+                if pdf_content:
+                    pdfs_to_merge.append({
+                        'name': f"{Path(filename).stem}_converted.pdf",
+                        'content': pdf_content
+                    })
+                    converted_attachments.append({
+                        'name': filename,
+                        'converted': True,
+                        'size': len(pdf_content)
+                    })
+                    logger.info(f"Successfully converted {filename} to PDF")
+                else:
+                    logger.info(f"Could not convert {filename} - will be listed as attachment")
+                    converted_attachments.append({
+                        'name': filename,
+                        'converted': False,
+                        'reason': 'Unsupported file type or conversion failed'
+                    })
+                    
+            except Exception as e:
+                logger.error(f"Error processing attachment {attachment.get('name', 'unknown')}: {str(e)}")
+                converted_attachments.append({
+                    'name': attachment.get('name', 'unknown'),
+                    'converted': False,
+                    'reason': f'Processing error: {str(e)}'
+                })
+        
+        # Merge all PDFs
+        if len(pdfs_to_merge) > 1:
+            logger.info(f"Merging {len(pdfs_to_merge)} PDFs...")
+            
+            # Try Gotenberg merge first
+            merged_pdf = merge_pdfs_with_gotenberg(pdfs_to_merge)
+            
+            # Fallback to PyPDF2 if Gotenberg fails
+            if not merged_pdf:
+                logger.info("Gotenberg merge failed, trying PyPDF2 fallback...")
+                merged_pdf = fallback_merge_pdfs(pdfs_to_merge)
+            
+            if not merged_pdf:
+                logger.error("Both merge methods failed, returning email PDF only")
+                merged_pdf = email_pdf_content
+        else:
+            merged_pdf = email_pdf_content
+        
+        # Return the merged PDF as base64 JSON (for testing)
         response_data = {
             'pdf': base64.b64encode(merged_pdf).decode('utf-8'),
             'attachments_processed': converted_attachments,
