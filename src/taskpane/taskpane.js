@@ -845,11 +845,38 @@ async function createHtmlToPdfmakePdf(metaHtml, htmlBody, attachments) {
         // Handle any remaining font references in CSS
         fullHtml = fullHtml.replace(/(Aptos|Calibri|Arial|Times New Roman|Helvetica|serif|sans-serif|monospace)/gi, 'Roboto');
         
-        // Configure html-to-pdfmake options with font mapping and image handling
+        // Pre-process HTML to handle problematic external images that might cause CORS issues
+        // Remove tracking pixels and external images that typically cause CORS problems
+        fullHtml = fullHtml.replace(/<img[^>]*src\s*=\s*["']([^"']*)[^>]*>/gi, (match, src) => {
+            // Remove known problematic domains that typically block CORS
+            const problematicDomains = [
+                'trk.theoodie.com',
+                'track.',
+                'tracking.',
+                'analytics.',
+                'pixel.',
+                'beacon.',
+                'events.',
+                'metrics.',
+                'telemetry.'
+            ];
+            
+            const shouldRemove = problematicDomains.some(domain => src.includes(domain));
+            
+            if (shouldRemove) {
+                console.log('Removing problematic image:', src);
+                return '<!-- Image removed due to CORS restrictions -->';
+            }
+            
+            // Keep other images but add error handling attributes
+            return match.replace('<img', '<img crossorigin="anonymous"');
+        });
+        
+        // Configure html-to-pdfmake options with font mapping and conservative image handling
         const options = {
             tableAutoSize: true,
             removeExtraBlanks: true,
-            imagesByReference: true, // Enable automatic external image handling
+            imagesByReference: false, // Disable to avoid CORS issues with external images
             fontMapping: {
                 'Aptos': 'Roboto',
                 'Calibri': 'Roboto', 
@@ -883,16 +910,11 @@ async function createHtmlToPdfmakePdf(metaHtml, htmlBody, attachments) {
         };
         
         // Convert HTML to pdfmake format
-        const result = htmlToPdfmake(fullHtml, options);
-        
-        // Extract content and images (imagesByReference returns an object with both)
-        const pdfmakeContent = result.content || result;
-        const images = result.images || {};
+        const pdfmakeContent = htmlToPdfmake(fullHtml, options);
         
         // Create the document definition
         const docDefinition = {
             content: pdfmakeContent,
-            images: images, // Include extracted images for external URL support
             defaultStyle: {
                 fontSize: 11,
                 font: 'Roboto'
@@ -922,26 +944,9 @@ async function createHtmlToPdfmakePdf(metaHtml, htmlBody, attachments) {
         try {
             pdfMake.createPdf(docDefinition).download((Office.context.mailbox.item.subject || 'email') + '.pdf');
             console.log('PDF created successfully with html-to-pdfmake');
-        } catch (imageError) {
-            console.warn('PDF creation failed with images, attempting without images:', imageError);
-            
-            // Fallback: Remove images and try again
-            const fallbackDocDefinition = {
-                ...docDefinition,
-                images: undefined
-            };
-            
-            // Also remove image references from content
-            const contentWithoutImages = JSON.stringify(pdfmakeContent).replace(/,?"image":"img_ref_\d+"/g, '');
-            fallbackDocDefinition.content = JSON.parse(contentWithoutImages);
-            
-            try {
-                pdfMake.createPdf(fallbackDocDefinition).download((Office.context.mailbox.item.subject || 'email') + '.pdf');
-                console.log('PDF created successfully with html-to-pdfmake (without images)');
-            } catch (fallbackError) {
-                console.error('PDF creation failed even without images:', fallbackError);
-                throw fallbackError;
-            }
+        } catch (error) {
+            console.error('PDF creation failed:', error);
+            throw error;
         }
     } catch (err) {
         console.error('Error creating PDF with html-to-pdfmake:', err);
@@ -1177,6 +1182,129 @@ function initializeApp() {
                 this.textContent = 'Convert Email to PDF';
             }
         };
+        
+        // Get test button and attach click handler for testing PDF engines
+        const testBtn = document.getElementById('testBtn');
+        if (testBtn) {
+            console.log('testBtn found:', testBtn);
+            
+            testBtn.onclick = async function() {
+                console.log('Test button clicked.');
+                this.disabled = true;
+                this.textContent = 'Testing...';
+                
+                try {
+                    // Get selected engine
+                    const engineSel = document.getElementById('pdfEngine');
+                    const engine = engineSel ? engineSel.value : 'html-to-pdfmake';
+                    console.log('Testing PDF Engine:', engine);
+                    
+                    // Sample test HTML with different fonts and images
+                    const testMetaHtml = `<div style="background:#f5f5f5;padding:12px 18px 12px 18px;margin-bottom:18px;border-radius:6px;font-size:1em;line-height:1.5;font-family:Aptos,Calibri,Arial,sans-serif;">
+                        <div><b>From:</b> test@example.com (Test User)</div>
+                        <div><b>To:</b> recipient@example.com (Recipient)</div>
+                        <div><b>Subject:</b> Test Email with Various Fonts</div>
+                        <div><b>Sent:</b> ${new Date().toLocaleString()}</div>
+                    </div>`;
+                    
+                    const testHtmlBody = `
+                        <div style="font-family: Aptos, sans-serif; font-size: 14px; line-height: 1.6;">
+                            <h1 style="font-family: Aptos, sans-serif; color: #005a9f;">Test Email with Different Fonts</h1>
+                            <p style="font-family: Aptos, sans-serif;">This paragraph uses <strong>Aptos font</strong> which should be mapped to Roboto.</p>
+                            
+                            <h2 style="font-family: Calibri, sans-serif; color: #005a9f;">Calibri Heading</h2>
+                            <p style="font-family: Calibri, sans-serif;">This text is in <em>Calibri font</em> which should also map to Roboto.</p>
+                            
+                            <h3 style="font-family: Arial, sans-serif;">Arial Section</h3>
+                            <ul style="font-family: Arial, sans-serif;">
+                                <li>List item with Arial font</li>
+                                <li>Another list item with <strong>bold Arial text</strong></li>
+                                <li>Third item with <a href="#" style="color: #0066cc;">a link in Arial</a></li>
+                            </ul>
+                            
+                            <h3 style="font-family: Times New Roman, serif;">Times New Roman Section</h3>
+                            <p style="font-family: Times New Roman, serif;">This paragraph uses Times New Roman, which should also be mapped to Roboto for consistency.</p>
+                            
+                            <h3 style="font-family: Helvetica, sans-serif;">Helvetica Section</h3>
+                            <blockquote style="font-family: Helvetica, sans-serif; border-left: 4px solid #005a9f; padding-left: 15px; margin-left: 0; color: #666;">
+                                This is a blockquote in Helvetica font family, demonstrating how font mapping handles different CSS font specifications.
+                            </blockquote>
+                            
+                            <table style="border-collapse: collapse; width: 100%; margin: 20px 0; font-family: Calibri, sans-serif;">
+                                <tr style="background-color: #e6f1ff;">
+                                    <th style="border: 1px solid #ddd; padding: 8px; text-align: left; font-family: Calibri, sans-serif;">Column 1</th>
+                                    <th style="border: 1px solid #ddd; padding: 8px; text-align: left; font-family: Aptos, sans-serif;">Column 2</th>
+                                </tr>
+                                <tr>
+                                    <td style="border: 1px solid #ddd; padding: 8px; font-family: Arial, sans-serif;">Calibri cell</td>
+                                    <td style="border: 1px solid #ddd; padding: 8px; font-family: Times New Roman, serif;">Times cell</td>
+                                </tr>
+                            </table>
+                            
+                            <p style="font-family: sans-serif; color: #666; font-size: 12px;">
+                                This test email contains various font families commonly used in Office emails:
+                                Aptos, Calibri, Arial, Times New Roman, and Helvetica. All should be mapped to Roboto in the PDF output.
+                            </p>
+                        </div>
+                    `;
+                    
+                    // Test the selected engine
+                    if (engine === 'html-to-pdfmake') {
+                        if (!htmlToPdfmake || !pdfMake) {
+                            throw new Error('html-to-pdfmake libraries not loaded yet. Please try again in a moment.');
+                        }
+                        await createHtmlToPdfmakePdf(testMetaHtml, testHtmlBody, []);
+                        console.log('Test completed successfully with html-to-pdfmake');
+                    } else if (engine === 'pdf-lib') {
+                        if (!PDFDocument) {
+                            throw new Error('PDF library not loaded yet. Please try again in a moment.');
+                        }
+                        await createPdfLibTextPdf(testMetaHtml, testHtmlBody, []);
+                        console.log('Test completed successfully with pdf-lib');
+                    } else {
+                        // html2pdf test
+                        await createPdf(testMetaHtml + testHtmlBody, [], []);
+                        console.log('Test completed successfully with html2pdf');
+                    }
+                    
+                    // Show success message
+                    let msgDiv = document.getElementById('pdf2email-message');
+                    if (!msgDiv) {
+                        msgDiv = document.createElement('div');
+                        msgDiv.id = 'pdf2email-message';
+                        msgDiv.style.color = '#007acc';
+                        msgDiv.style.fontSize = '1em';
+                        msgDiv.style.margin = '12px 0';
+                        msgDiv.style.display = 'block';
+                        const appDiv = document.getElementById('app');
+                        if (appDiv) appDiv.parentNode.insertBefore(msgDiv, appDiv.nextSibling);
+                        else document.body.insertBefore(msgDiv, document.body.firstChild);
+                    }
+                    msgDiv.style.color = '#007acc';
+                    msgDiv.textContent = `Test PDF generated successfully using ${engine} engine! Check your downloads folder.`;
+                    
+                } catch (err) {
+                    console.error('Error in test PDF generation:', err);
+                    let msgDiv = document.getElementById('pdf2email-message');
+                    if (!msgDiv) {
+                        msgDiv = document.createElement('div');
+                        msgDiv.id = 'pdf2email-message';
+                        msgDiv.style.color = '#b00';
+                        msgDiv.style.fontSize = '1em';
+                        msgDiv.style.margin = '12px 0';
+                        msgDiv.style.display = 'block';
+                        const appDiv = document.getElementById('app');
+                        if (appDiv) appDiv.parentNode.insertBefore(msgDiv, appDiv.nextSibling);
+                        else document.body.insertBefore(msgDiv, document.body.firstChild);
+                    }
+                    msgDiv.style.color = '#b00';
+                    msgDiv.textContent = 'Test PDF generation failed: ' + err.message;
+                }
+                
+                this.disabled = false;
+                this.textContent = 'Test PDF Engine';
+            };
+        }
         
         console.log('Button click handler attached.');
     } catch (err) {

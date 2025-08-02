@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Engine Test</title>
+    
+    <!-- PDFMake and html-to-pdfmake libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/pdfmake@latest/build/pdfmake.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pdfmake@latest/build/vfs_fonts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html-to-pdfmake/browser.js"></script>
+    
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            line-height: 1.6;
+        }
+        
+        button {
+            background-color: #007acc;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 4px;
+            margin: 10px;
+        }
+        
+        button:hover {
+            background-color: #005a9f;
+        }
+        
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .status {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+    </style>
+</head>
+<body>
+    <h1>PDF Engine Test - Font & CORS Fix Validation</h1>
+    <p>This page tests the html-to-pdfmake PDF generation with font mapping and CORS error fixes.</p>
+    
+    <div>
+        <button id="testBtn">Test PDF Generation</button>
+        <button id="clearBtn">Clear Status</button>
+    </div>
+    
+    <div id="status"></div>
+    
+    <script>
+        // Import the fixed createHtmlToPdfmakePdf function logic
+        async function testPdfGeneration() {
+            const statusDiv = document.getElementById('status');
+            
+            function showStatus(message, type = 'info') {
+                const statusEl = document.createElement('div');
+                statusEl.className = `status ${type}`;
+                statusEl.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+                statusDiv.appendChild(statusEl);
+                console.log(message);
+            }
+            
+            try {
+                showStatus('Starting PDF generation test...', 'info');
+                
+                // Check if libraries are available
+                if (!window.htmlToPdfmake || !window.pdfMake) {
+                    throw new Error('html-to-pdfmake or pdfMake libraries not loaded');
+                }
+                
+                showStatus('Libraries loaded successfully', 'success');
+                
+                // Configure pdfMake fonts to handle system fonts and provide fallbacks
+                pdfMake.fonts = {
+                    // Default Roboto font (always available)
+                    Roboto: {
+                        normal: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Regular.ttf',
+                        bold: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Medium.ttf',
+                        italics: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Italic.ttf',
+                        bolditalics: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-MediumItalic.ttf'
+                    },
+                    // Map common system fonts to Roboto
+                    Aptos: {
+                        normal: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Regular.ttf',
+                        bold: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Medium.ttf',
+                        italics: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Italic.ttf',
+                        bolditalics: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-MediumItalic.ttf'
+                    },
+                    Calibri: {
+                        normal: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Regular.ttf',
+                        bold: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Medium.ttf',
+                        italics: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Italic.ttf',
+                        bolditalics: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-MediumItalic.ttf'
+                    },
+                    Arial: {
+                        normal: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Regular.ttf',
+                        bold: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Medium.ttf',
+                        italics: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Italic.ttf',
+                        bolditalics: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-MediumItalic.ttf'
+                    },
+                    'Times New Roman': {
+                        normal: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Regular.ttf',
+                        bold: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Medium.ttf',
+                        italics: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Italic.ttf',
+                        bolditalics: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-MediumItalic.ttf'
+                    },
+                    Helvetica: {
+                        normal: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Regular.ttf',
+                        bold: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Medium.ttf',
+                        italics: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Italic.ttf',
+                        bolditalics: 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-MediumItalic.ttf'
+                    }
+                };
+                
+                showStatus('Font mapping configured successfully', 'success');
+                
+                // Sample test HTML with different fonts and potentially problematic images
+                const testMetaHtml = `<div style="background:#f5f5f5;padding:12px 18px 12px 18px;margin-bottom:18px;border-radius:6px;font-size:1em;line-height:1.5;font-family:Aptos,Calibri,Arial,sans-serif;">
+                    <div><b>From:</b> test@example.com (Test User)</div>
+                    <div><b>To:</b> recipient@example.com (Recipient)</div>
+                    <div><b>Subject:</b> Test Email with Various Fonts and Images</div>
+                    <div><b>Sent:</b> ${new Date().toLocaleString()}</div>
+                </div>`;
+                
+                const testHtmlBody = `
+                    <div style="font-family: Aptos, sans-serif; font-size: 14px; line-height: 1.6;">
+                        <h1 style="font-family: Aptos, sans-serif; color: #005a9f;">Test Email - Font Mapping & CORS Fix</h1>
+                        <p style="font-family: Aptos, sans-serif;">This paragraph uses <strong>Aptos font</strong> which should be mapped to Roboto.</p>
+                        
+                        <h2 style="font-family: Calibri, sans-serif; color: #005a9f;">Calibri Heading</h2>
+                        <p style="font-family: Calibri, sans-serif;">This text is in <em>Calibri font</em> which should also map to Roboto.</p>
+                        
+                        <h3 style="font-family: Arial, sans-serif;">Arial Section</h3>
+                        <ul style="font-family: Arial, sans-serif;">
+                            <li>List item with Arial font</li>
+                            <li>Another list item with <strong>bold Arial text</strong></li>
+                            <li>Third item with <a href="#" style="color: #0066cc;">a link in Arial</a></li>
+                        </ul>
+                        
+                        <h3 style="font-family: Times New Roman, serif;">Times New Roman Section</h3>
+                        <p style="font-family: Times New Roman, serif;">This paragraph uses Times New Roman, which should also be mapped to Roboto for consistency.</p>
+                        
+                        <h3 style="font-family: Helvetica, sans-serif;">Image Handling Test</h3>
+                        <p style="font-family: Helvetica, sans-serif;">The following images test CORS handling:</p>
+                        
+                        <!-- Test external image that might cause CORS issues -->
+                        <img src="https://trk.theoodie.com/tracking-pixel.png" alt="Tracking pixel" style="width: 1px; height: 1px;" />
+                        <img src="https://statics.teams.cdn.office.net/hashedassets-launcher/favicon/favicon-96x96.png" alt="Teams icon" style="width: 32px; height: 32px;" />
+                        
+                        <blockquote style="font-family: Helvetica, sans-serif; border-left: 4px solid #005a9f; padding-left: 15px; margin-left: 0; color: #666;">
+                            This blockquote demonstrates font mapping with Helvetica. Any problematic external images should be removed automatically.
+                        </blockquote>
+                        
+                        <table style="border-collapse: collapse; width: 100%; margin: 20px 0; font-family: Calibri, sans-serif;">
+                            <tr style="background-color: #e6f1ff;">
+                                <th style="border: 1px solid #ddd; padding: 8px; text-align: left; font-family: Calibri, sans-serif;">Test Result</th>
+                                <th style="border: 1px solid #ddd; padding: 8px; text-align: left; font-family: Aptos, sans-serif;">Expected Behavior</th>
+                            </tr>
+                            <tr>
+                                <td style="border: 1px solid #ddd; padding: 8px; font-family: Arial, sans-serif;">Font mapping</td>
+                                <td style="border: 1px solid #ddd; padding: 8px; font-family: Times New Roman, serif;">All fonts mapped to Roboto</td>
+                            </tr>
+                            <tr>
+                                <td style="border: 1px solid #ddd; padding: 8px; font-family: Helvetica, sans-serif;">CORS images</td>
+                                <td style="border: 1px solid #ddd; padding: 8px; font-family: Calibri, sans-serif;">Problematic images removed</td>
+                            </tr>
+                        </table>
+                        
+                        <p style="font-family: sans-serif; color: #666; font-size: 12px;">
+                            This test validates that:
+                            <br/>• All font families (Aptos, Calibri, Arial, Times New Roman, Helvetica) are mapped to Roboto
+                            <br/>• External images that might cause CORS errors are handled gracefully
+                            <br/>• PDF generation completes successfully without font or image errors
+                        </p>
+                    </div>
+                `;
+                
+                // Combine all HTML and ensure font-family is specified
+                let fullHtml = testMetaHtml + testHtmlBody;
+                
+                showStatus('Test HTML content prepared', 'success');
+                
+                // Pre-process HTML to replace all font-family references with Roboto
+                fullHtml = fullHtml.replace(/font-family\s*:\s*[^;}"]+/gi, 'font-family: Roboto, sans-serif');
+                fullHtml = fullHtml.replace(/style\s*=\s*"([^"]*?)"/gi, (match, styleContent) => {
+                    const updatedStyle = styleContent.replace(/font-family\s*:\s*[^;]+/gi, 'font-family: Roboto, sans-serif');
+                    return `style="${updatedStyle}"`;
+                });
+                fullHtml = fullHtml.replace(/(Aptos|Calibri|Arial|Times New Roman|Helvetica|serif|sans-serif|monospace)/gi, 'Roboto');
+                
+                showStatus('Font preprocessing completed', 'success');
+                
+                // Pre-process HTML to handle problematic external images
+                const originalImageCount = (fullHtml.match(/<img[^>]*>/gi) || []).length;
+                
+                fullHtml = fullHtml.replace(/<img[^>]*src\s*=\s*["']([^"']*)[^>]*>/gi, (match, src) => {
+                    const problematicDomains = [
+                        'trk.theoodie.com',
+                        'track.',
+                        'tracking.',
+                        'analytics.',
+                        'pixel.',
+                        'beacon.',
+                        'events.',
+                        'metrics.',
+                        'telemetry.'
+                    ];
+                    
+                    const shouldRemove = problematicDomains.some(domain => src.includes(domain));
+                    
+                    if (shouldRemove) {
+                        console.log('Removing problematic image:', src);
+                        return '<!-- Image removed due to CORS restrictions -->';
+                    }
+                    
+                    return match.replace('<img', '<img crossorigin="anonymous"');
+                });
+                
+                const finalImageCount = (fullHtml.match(/<img[^>]*>/gi) || []).length;
+                showStatus(`Image preprocessing completed: ${originalImageCount} → ${finalImageCount} images`, 'success');
+                
+                // Configure html-to-pdfmake options
+                const options = {
+                    tableAutoSize: true,
+                    removeExtraBlanks: true,
+                    imagesByReference: false, // Disable to avoid CORS issues
+                    fontMapping: {
+                        'Aptos': 'Roboto',
+                        'Calibri': 'Roboto',
+                        'Arial': 'Roboto',
+                        'Times New Roman': 'Roboto',
+                        'Helvetica': 'Roboto',
+                        'sans-serif': 'Roboto',
+                        'serif': 'Roboto',
+                        'monospace': 'Roboto'
+                    },
+                    defaultStyles: {
+                        h1: { fontSize: 18, bold: true, marginBottom: 8, color: '#005a9f', font: 'Roboto' },
+                        h2: { fontSize: 16, bold: true, marginBottom: 6, color: '#005a9f', font: 'Roboto' },
+                        h3: { fontSize: 14, bold: true, marginBottom: 5, color: '#005a9f', font: 'Roboto' },
+                        p: { margin: [0, 3, 0, 6], font: 'Roboto' },
+                        a: { color: '#0066cc', decoration: 'underline', font: 'Roboto' },
+                        table: { marginBottom: 10, font: 'Roboto' },
+                        th: { bold: true, fillColor: '#e6f1ff', alignment: 'left', font: 'Roboto' },
+                        td: { margin: [3, 3, 3, 3], font: 'Roboto' }
+                    }
+                };
+                
+                showStatus('html-to-pdfmake options configured', 'success');
+                
+                // Convert HTML to pdfmake format
+                const pdfmakeContent = htmlToPdfmake(fullHtml, options);
+                
+                showStatus('HTML converted to pdfMake format successfully', 'success');
+                
+                // Create the document definition
+                const docDefinition = {
+                    content: pdfmakeContent,
+                    defaultStyle: {
+                        fontSize: 11,
+                        font: 'Roboto'
+                    },
+                    styles: {
+                        header: {
+                            fontSize: 14,
+                            bold: true,
+                            margin: [0, 0, 0, 10],
+                            font: 'Roboto'
+                        }
+                    },
+                    pageMargins: [40, 60, 40, 60],
+                    footer: function(currentPage, pageCount) {
+                        return {
+                            text: `Generated by Email2PDF Test • ${new Date().toLocaleDateString()} • Page ${currentPage} of ${pageCount}`,
+                            alignment: 'center',
+                            fontSize: 8,
+                            color: '#666666',
+                            margin: [0, 10, 0, 0],
+                            font: 'Roboto'
+                        };
+                    }
+                };
+                
+                showStatus('Document definition created', 'success');
+                
+                // Generate and download the PDF
+                pdfMake.createPdf(docDefinition).download('font-cors-test.pdf');
+                showStatus('PDF generation initiated successfully!', 'success');
+                
+                showStatus('✅ TEST COMPLETED SUCCESSFULLY! Check your downloads folder for "font-cors-test.pdf"', 'success');
+                
+            } catch (error) {
+                showStatus(`❌ TEST FAILED: ${error.message}`, 'error');
+                console.error('Test error:', error);
+            }
+        }
+        
+        // Event handlers
+        document.getElementById('testBtn').addEventListener('click', async function() {
+            this.disabled = true;
+            this.textContent = 'Running Test...';
+            
+            try {
+                await testPdfGeneration();
+            } finally {
+                this.disabled = false;
+                this.textContent = 'Test PDF Generation';
+            }
+        });
+        
+        document.getElementById('clearBtn').addEventListener('click', function() {
+            document.getElementById('status').innerHTML = '';
+        });
+    </script>
+</body>
+</html>
