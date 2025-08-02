@@ -145,38 +145,297 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
         let currentPage = pdfDoc.addPage([595, 842]); // A4 size in points
         const { width, height } = currentPage.getSize();
         
-        // Add a font
-        const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-        const fontSize = 10;
+        // Load fonts
+        const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
+        const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+        const courier = await pdfDoc.embedFont(StandardFonts.Courier);
         
-        // Create a simple text-based version
-        const textContent = stripHtml(metaHtml) + '\n\n' + stripHtml(htmlBody);
-        
-        // Split into lines and add to PDF
-        const lines = splitTextIntoLines(textContent, font, fontSize, width - 100);
         let y = height - 50;
-        const lineHeight = fontSize * 1.2;
+        const margin = 50;
+        const contentWidth = width - (margin * 2);
         
-        for (const line of lines) {
-            if (y < 50) {
-                // Add a new page if we're near the bottom
+        // Function to add a new page if needed
+        const addPageIfNeeded = (requiredHeight = 20) => {
+            if (y < margin + requiredHeight) {
                 currentPage = pdfDoc.addPage([595, 842]);
                 y = height - 50;
+                return true;
             }
+            return false;
+        };
+        
+        // Function to draw text with wrapping
+        const drawWrappedText = (text, font, fontSize, color = rgb(0, 0, 0), lineSpacing = 1.2) => {
+            const lines = splitTextIntoLines(text, font, fontSize, contentWidth);
+            const lineHeight = fontSize * lineSpacing;
             
-            // Only draw non-empty lines
-            if (line.trim()) {
-                currentPage.drawText(line, {
-                    x: 50,
+            for (const line of lines) {
+                addPageIfNeeded(lineHeight);
+                if (line.trim()) {
+                    currentPage.drawText(line, {
+                        x: margin,
+                        y,
+                        size: fontSize,
+                        font,
+                        color,
+                    });
+                }
+                y -= lineHeight;
+            }
+            return lines.length * lineHeight;
+        };
+        
+        // Parse and format the metadata section
+        const metaDoc = new DOMParser().parseFromString(metaHtml, 'text/html');
+        const metaText = metaDoc.body.textContent || metaDoc.body.innerText || '';
+        
+        // Header: Email metadata with better formatting
+        drawWrappedText('EMAIL DETAILS', helveticaBold, 14, rgb(0.2, 0.2, 0.2));
+        y -= 10; // Extra spacing after header
+        
+        // Parse metadata fields
+        const metaLines = metaText.split('\n').filter(line => line.trim());
+        for (const line of metaLines) {
+            if (line.includes(':')) {
+                const [label, ...valueParts] = line.split(':');
+                const value = valueParts.join(':').trim();
+                
+                // Draw label in bold
+                const labelWidth = helveticaBold.widthOfTextAtSize(label + ': ', 11);
+                addPageIfNeeded(15);
+                currentPage.drawText(label + ': ', {
+                    x: margin,
                     y,
-                    size: fontSize,
-                    font,
-                    // Use rgb function instead of color object
-                    color: rgb(0, 0, 0),
+                    size: 11,
+                    font: helveticaBold,
+                    color: rgb(0.3, 0.3, 0.3),
                 });
+                
+                // Draw value in regular font, wrapped if needed
+                if (value) {
+                    const remainingWidth = contentWidth - labelWidth;
+                    const valueLines = splitTextIntoLines(value, helvetica, 11, remainingWidth);
+                    
+                    // First line on same line as label
+                    if (valueLines[0]) {
+                        currentPage.drawText(valueLines[0], {
+                            x: margin + labelWidth,
+                            y,
+                            size: 11,
+                            font: helvetica,
+                            color: rgb(0, 0, 0),
+                        });
+                    }
+                    y -= 15;
+                    
+                    // Additional lines indented
+                    for (let i = 1; i < valueLines.length; i++) {
+                        addPageIfNeeded(15);
+                        currentPage.drawText(valueLines[i], {
+                            x: margin + labelWidth,
+                            y,
+                            size: 11,
+                            font: helvetica,
+                            color: rgb(0, 0, 0),
+                        });
+                        y -= 15;
+                    }
+                } else {
+                    y -= 15;
+                }
             }
+        }
+        
+        y -= 20; // Extra space before content
+        
+        // Add separator line
+        addPageIfNeeded(10);
+        currentPage.drawLine({
+            start: { x: margin, y: y },
+            end: { x: width - margin, y: y },
+            thickness: 1,
+            color: rgb(0.8, 0.8, 0.8),
+        });
+        y -= 20;
+        
+        // Parse HTML body with better formatting
+        const bodyDoc = new DOMParser().parseFromString(htmlBody, 'text/html');
+        
+        // Process different HTML elements
+        const processElement = (element, defaultFont = helvetica, defaultSize = 11, defaultColor = rgb(0, 0, 0)) => {
+            const tagName = element.tagName?.toLowerCase();
             
-            y -= lineHeight;
+            switch (tagName) {
+                case 'h1':
+                case 'h2':
+                case 'h3':
+                case 'h4':
+                case 'h5':
+                case 'h6':
+                    y -= 10; // Space before heading
+                    const headingSize = tagName === 'h1' ? 16 : tagName === 'h2' ? 14 : 12;
+                    const headingText = element.textContent || element.innerText || '';
+                    drawWrappedText(headingText, helveticaBold, headingSize, rgb(0.1, 0.1, 0.1));
+                    y -= 5; // Space after heading
+                    break;
+                    
+                case 'p':
+                    const pText = element.textContent || element.innerText || '';
+                    if (pText.trim()) {
+                        drawWrappedText(pText, defaultFont, defaultSize, defaultColor);
+                        y -= 10; // Paragraph spacing
+                    }
+                    break;
+                    
+                case 'strong':
+                case 'b':
+                    const strongText = element.textContent || element.innerText || '';
+                    drawWrappedText(strongText, helveticaBold, defaultSize, defaultColor);
+                    break;
+                    
+                case 'code':
+                case 'pre':
+                    const codeText = element.textContent || element.innerText || '';
+                    y -= 5;
+                    // Code background (light gray rectangle)
+                    const codeLines = splitTextIntoLines(codeText, courier, 10, contentWidth - 20);
+                    const codeHeight = codeLines.length * 12 + 10;
+                    addPageIfNeeded(codeHeight);
+                    
+                    currentPage.drawRectangle({
+                        x: margin,
+                        y: y - codeHeight + 5,
+                        width: contentWidth,
+                        height: codeHeight,
+                        color: rgb(0.95, 0.95, 0.95),
+                    });
+                    
+                    // Draw code text
+                    for (const line of codeLines) {
+                        addPageIfNeeded(12);
+                        if (line.trim()) {
+                            currentPage.drawText(line, {
+                                x: margin + 10,
+                                y,
+                                size: 10,
+                                font: courier,
+                                color: rgb(0.2, 0.2, 0.2),
+                            });
+                        }
+                        y -= 12;
+                    }
+                    y -= 10;
+                    break;
+                    
+                case 'ul':
+                case 'ol':
+                    const listItems = element.querySelectorAll('li');
+                    listItems.forEach((li, index) => {
+                        const bullet = tagName === 'ul' ? '• ' : `${index + 1}. `;
+                        const liText = li.textContent || li.innerText || '';
+                        if (liText.trim()) {
+                            addPageIfNeeded(15);
+                            // Draw bullet/number
+                            currentPage.drawText(bullet, {
+                                x: margin + 10,
+                                y,
+                                size: defaultSize,
+                                font: defaultFont,
+                                color: defaultColor,
+                            });
+                            
+                            // Draw list item text with proper indentation
+                            const bulletWidth = defaultFont.widthOfTextAtSize(bullet, defaultSize);
+                            const itemLines = splitTextIntoLines(liText, defaultFont, defaultSize, contentWidth - bulletWidth - 20);
+                            
+                            for (let i = 0; i < itemLines.length; i++) {
+                                if (i > 0) addPageIfNeeded(15);
+                                currentPage.drawText(itemLines[i], {
+                                    x: margin + 10 + bulletWidth,
+                                    y,
+                                    size: defaultSize,
+                                    font: defaultFont,
+                                    color: defaultColor,
+                                });
+                                if (i < itemLines.length - 1) y -= 15;
+                            }
+                            y -= 15;
+                        }
+                    });
+                    y -= 10; // Space after list
+                    break;
+                    
+                case 'blockquote':
+                    y -= 5;
+                    const quoteText = element.textContent || element.innerText || '';
+                    // Draw quote bar
+                    addPageIfNeeded(20);
+                    currentPage.drawRectangle({
+                        x: margin,
+                        y: y - 20,
+                        width: 3,
+                        height: 20,
+                        color: rgb(0.6, 0.6, 0.6),
+                    });
+                    
+                    // Draw quote text with indentation
+                    const quoteLines = splitTextIntoLines(quoteText, helvetica, 11, contentWidth - 30);
+                    for (const line of quoteLines) {
+                        addPageIfNeeded(15);
+                        if (line.trim()) {
+                            currentPage.drawText(line, {
+                                x: margin + 20,
+                                y,
+                                size: 11,
+                                font: helvetica,
+                                color: rgb(0.4, 0.4, 0.4),
+                            });
+                        }
+                        y -= 15;
+                    }
+                    y -= 10;
+                    break;
+                    
+                default:
+                    // For other elements, just extract text
+                    const text = element.textContent || element.innerText || '';
+                    if (text.trim() && !element.querySelector('p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote')) {
+                        drawWrappedText(text, defaultFont, defaultSize, defaultColor);
+                        y -= 5;
+                    }
+                    break;
+            }
+        };
+        
+        // Process all elements in the body
+        const walkElements = (element) => {
+            // Process current element
+            processElement(element);
+            
+            // Process children for elements that don't handle their own children
+            const tagName = element.tagName?.toLowerCase();
+            if (!['ul', 'ol', 'code', 'pre'].includes(tagName)) {
+                for (const child of element.children) {
+                    walkElements(child);
+                }
+            }
+        };
+        
+        // Start processing from body
+        if (bodyDoc.body) {
+            for (const child of bodyDoc.body.children) {
+                walkElements(child);
+            }
+        }
+        
+        // If no structured content found, fall back to simple text
+        if (y > height - 100) {
+            const simpleText = stripHtml(htmlBody);
+            if (simpleText.trim()) {
+                drawWrappedText('EMAIL CONTENT', helveticaBold, 12, rgb(0.2, 0.2, 0.2));
+                y -= 10;
+                drawWrappedText(simpleText, helvetica, 11);
+            }
         }
         
         // Save the PDF
@@ -189,7 +448,7 @@ async function createPdfLibTextPdf(metaHtml, htmlBody, attachments) {
         link.download = (Office.context.mailbox.item.subject || 'email') + '.pdf';
         link.click();
         
-        console.log('PDF created successfully with pdf-lib');
+        console.log('PDF created successfully with pdf-lib (enhanced formatting)');
     } catch (err) {
         console.error('Error creating PDF with pdf-lib:', err);
         throw err;
