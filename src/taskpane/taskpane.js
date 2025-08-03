@@ -9,9 +9,15 @@ async function sendEmailToServer() {
             throw new Error('No email item found');
         }
 
-        // Get the email body as it appears to the user (with inline images resolved)
+        // Get the email body with enhanced options for better content capture
         const htmlBody = await new Promise((resolve, reject) => {
-            item.body.getAsync(Office.CoercionType.Html, (result) => {
+            // Use FullBody mode to get complete conversation content for better formatting
+            const options = {
+                bodyMode: Office.MailboxEnums.BodyMode.FullBody,
+                asyncContext: 'bodyRetrieval'
+            };
+            
+            item.body.getAsync(Office.CoercionType.Html, options, (result) => {
                 if (result.status === Office.AsyncResultStatus.Succeeded) {
                     resolve(result.value);
                 } else {
@@ -20,11 +26,16 @@ async function sendEmailToServer() {
             });
         });
 
-        // Get attachments with actual data
+        // Get attachments with enhanced content capture
         const attachmentPromises = item.attachments.map(attachment => {
             return new Promise((resolve, reject) => {
                 if (attachment.attachmentType === Office.MailboxEnums.AttachmentType.File) {
-                    attachment.getAttachmentContentAsync((result) => {
+                    // Get full attachment content with proper format specification
+                    const options = {
+                        asyncContext: attachment.id
+                    };
+                    
+                    attachment.getAttachmentContentAsync(options, (result) => {
                         if (result.status === Office.AsyncResultStatus.Succeeded) {
                             resolve({
                                 id: attachment.id,
@@ -34,25 +45,33 @@ async function sendEmailToServer() {
                                 isInline: attachment.isInline,
                                 contentId: attachment.contentId,
                                 content: result.value.content, // Base64 encoded content
-                                format: result.value.format
+                                format: result.value.format,
+                                // Additional metadata for better processing
+                                attachmentType: 'file',
+                                lastModifiedTime: attachment.lastModifiedTime || null
                             });
                         } else {
+                            // Still return basic info even if content fails
                             resolve({
                                 id: attachment.id,
                                 name: attachment.name,
                                 contentType: attachment.contentType,
                                 size: attachment.size,
                                 isInline: attachment.isInline,
-                                error: 'Failed to get content'
+                                contentId: attachment.contentId,
+                                attachmentType: 'file',
+                                error: `Failed to get content: ${result.error.message}`
                             });
                         }
                     });
                 } else {
+                    // Handle item attachments (emails, meetings, etc.)
                     resolve({
                         id: attachment.id,
                         name: attachment.name,
                         attachmentType: attachment.attachmentType,
-                        size: attachment.size
+                        size: attachment.size,
+                        contentType: attachment.contentType || 'application/octet-stream'
                     });
                 }
             });
@@ -60,8 +79,9 @@ async function sendEmailToServer() {
 
         const attachments = await Promise.all(attachmentPromises);
 
-        // Create comprehensive email data
+        // Create comprehensive email data with enhanced metadata
         const emailData = {
+            // Basic email properties
             subject: item.subject || 'No Subject',
             from: {
                 displayName: item.from ? item.from.displayName : 'Unknown',
@@ -79,17 +99,34 @@ async function sendEmailToServer() {
                 displayName: r.displayName || r.emailAddress,
                 emailAddress: r.emailAddress
             })) : [],
+            
+            // Timing information
             dateTimeCreated: item.dateTimeCreated ? item.dateTimeCreated.toISOString() : new Date().toISOString(),
             dateTimeModified: item.dateTimeModified ? item.dateTimeModified.toISOString() : null,
+            
+            // Content
             bodyHtml: htmlBody,
             attachments: attachments,
+            
+            // Additional metadata for better processing
             importance: item.importance,
             categories: item.categories || [],
             conversationId: item.conversationId,
             itemType: item.itemType,
-            // Additional metadata
             internetMessageId: item.internetMessageId,
-            normalizedSubject: item.normalizedSubject
+            normalizedSubject: item.normalizedSubject,
+            
+            // Processing hints for server
+            processingHints: {
+                bodyMode: 'FullBody',
+                includeInlineImages: true,
+                preserveFormatting: true,
+                clientInfo: {
+                    platform: 'Outlook',
+                    version: Office.context.diagnostics.version,
+                    host: Office.context.diagnostics.host
+                }
+            }
         };
 
         console.log('Email data prepared:', {
