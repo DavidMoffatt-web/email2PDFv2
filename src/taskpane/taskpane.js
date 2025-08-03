@@ -1,17 +1,15 @@
 console.log('taskpane.js loaded - Server metadata sender');
 
-// Simple function to send email data to server
 async function sendEmailToServer() {
     console.log('Sending email data to server');
     
     try {
-        // Get the current email
         const item = Office.context.mailbox.item;
         if (!item) {
             throw new Error('No email item found');
         }
-        
-        // Get email body
+
+        // Get the email body as it appears to the user (with inline images resolved)
         const htmlBody = await new Promise((resolve, reject) => {
             item.body.getAsync(Office.CoercionType.Html, (result) => {
                 if (result.status === Office.AsyncResultStatus.Succeeded) {
@@ -21,8 +19,48 @@ async function sendEmailToServer() {
                 }
             });
         });
-        
-        // Create email data object for server
+
+        // Get attachments with actual data
+        const attachmentPromises = item.attachments.map(attachment => {
+            return new Promise((resolve, reject) => {
+                if (attachment.attachmentType === Office.MailboxEnums.AttachmentType.File) {
+                    attachment.getAttachmentContentAsync((result) => {
+                        if (result.status === Office.AsyncResultStatus.Succeeded) {
+                            resolve({
+                                id: attachment.id,
+                                name: attachment.name,
+                                contentType: attachment.contentType,
+                                size: attachment.size,
+                                isInline: attachment.isInline,
+                                contentId: attachment.contentId,
+                                content: result.value.content, // Base64 encoded content
+                                format: result.value.format
+                            });
+                        } else {
+                            resolve({
+                                id: attachment.id,
+                                name: attachment.name,
+                                contentType: attachment.contentType,
+                                size: attachment.size,
+                                isInline: attachment.isInline,
+                                error: 'Failed to get content'
+                            });
+                        }
+                    });
+                } else {
+                    resolve({
+                        id: attachment.id,
+                        name: attachment.name,
+                        attachmentType: attachment.attachmentType,
+                        size: attachment.size
+                    });
+                }
+            });
+        });
+
+        const attachments = await Promise.all(attachmentPromises);
+
+        // Create comprehensive email data
         const emailData = {
             subject: item.subject || 'No Subject',
             from: {
@@ -37,11 +75,30 @@ async function sendEmailToServer() {
                 displayName: r.displayName || r.emailAddress,
                 emailAddress: r.emailAddress
             })) : [],
+            bcc: item.bcc ? item.bcc.map(r => ({
+                displayName: r.displayName || r.emailAddress,
+                emailAddress: r.emailAddress
+            })) : [],
             dateTimeCreated: item.dateTimeCreated ? item.dateTimeCreated.toISOString() : new Date().toISOString(),
+            dateTimeModified: item.dateTimeModified ? item.dateTimeModified.toISOString() : null,
             bodyHtml: htmlBody,
-            attachments: []
+            attachments: attachments,
+            importance: item.importance,
+            categories: item.categories || [],
+            conversationId: item.conversationId,
+            itemType: item.itemType,
+            // Additional metadata
+            internetMessageId: item.internetMessageId,
+            normalizedSubject: item.normalizedSubject
         };
-        
+
+        console.log('Email data prepared:', {
+            subject: emailData.subject,
+            attachmentCount: attachments.length,
+            inlineAttachments: attachments.filter(a => a.isInline).length,
+            bodyLength: htmlBody.length
+        });
+
         // Send to server
         const response = await fetch('http://localhost:5000/convert-email', {
             method: 'POST',
@@ -50,11 +107,11 @@ async function sendEmailToServer() {
             },
             body: JSON.stringify(emailData)
         });
-        
+
         if (!response.ok) {
             throw new Error(`Server error: ${response.status}`);
         }
-        
+
         console.log('Email data sent successfully to server');
         alert('Email data sent to server successfully!');
         
