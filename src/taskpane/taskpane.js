@@ -2,6 +2,13 @@ console.log('taskpane.js loaded - Server metadata sender');
 
 async function sendEmailToServer() {
     console.log('Sending email data to server');
+    // Read user-selected output mode and engine from the UI
+    const modeEl = document.getElementById('pdfMode');
+    const engineEl = document.getElementById('pdfEngine');
+    const outputMode = modeEl ? modeEl.value : 'full'; // 'full' | 'individual' | 'images'
+    const pdfEngine = engineEl ? engineEl.value : 'server-pdf';
+    const separateAttachments = outputMode !== 'full';
+    const splitInlineImages = outputMode === 'images';
     
     try {
         const item = Office.context.mailbox.item;
@@ -111,6 +118,11 @@ async function sendEmailToServer() {
             bodyHtml: htmlBody,
             attachments: attachments,
             
+            // Client-side mode and engine selections
+            pdfMode: outputMode,
+            outputMode: outputMode,
+            pdfEngine: pdfEngine,
+            
             // Additional metadata for better processing
             importance: item.importance,
             categories: item.categories || [],
@@ -124,6 +136,12 @@ async function sendEmailToServer() {
                 bodyMode: 'FullBody',
                 includeInlineImages: true,
                 preserveFormatting: true,
+                // Server-facing hints for output behavior
+                separateAttachments: separateAttachments,
+                splitInlineImages: splitInlineImages,
+                mergeAttachments: outputMode === 'full',
+                outputMode: outputMode,
+                pdfEngine: pdfEngine,
                 clientInfo: {
                     platform: 'Outlook',
                     version: Office.context.diagnostics.version,
@@ -136,7 +154,9 @@ async function sendEmailToServer() {
             subject: emailData.subject,
             attachmentCount: attachments.length,
             inlineAttachments: attachments.filter(a => a.isInline).length,
-            bodyLength: htmlBody.length
+            bodyLength: htmlBody.length,
+            pdfMode: outputMode,
+            pdfEngine: pdfEngine
         });
 
         // Send to server
