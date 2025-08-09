@@ -27,16 +27,17 @@ async function sendEmailToServer() {
         });
 
         // Get attachments with enhanced content capture
-        const attachmentPromises = item.attachments.map(attachment => {
-            return new Promise((resolve, reject) => {
-                if (attachment.attachmentType === Office.MailboxEnums.AttachmentType.File) {
-                    // Get full attachment content with proper format specification
-                    const options = {
-                        asyncContext: attachment.id
-                    };
-                    
-                    attachment.getAttachmentContentAsync(options, (result) => {
-                        if (result.status === Office.AsyncResultStatus.Succeeded) {
+        const attachmentPromises = (item.attachments || []).map(attachment => {
+            return new Promise((resolve) => {
+                // Prefer retrieving content for file attachments when API is available
+                const canGetContent =
+                    typeof item.getAttachmentContentAsync === 'function' &&
+                    (!Office.context.requirements || Office.context.requirements.isSetSupported?.('Mailbox', '1.8') || true);
+
+                if (attachment.attachmentType === Office.MailboxEnums.AttachmentType.File && canGetContent) {
+                    const options = { asyncContext: attachment.id };
+                    item.getAttachmentContentAsync(attachment.id, options, (result) => {
+                        if (result.status === Office.AsyncResultStatus.Succeeded && result.value) {
                             resolve({
                                 id: attachment.id,
                                 name: attachment.name,
@@ -60,17 +61,19 @@ async function sendEmailToServer() {
                                 isInline: attachment.isInline,
                                 contentId: attachment.contentId,
                                 attachmentType: 'file',
-                                error: `Failed to get content: ${result.error.message}`
+                                error: `Failed to get content: ${result.error?.message || 'Unknown error'}`
                             });
                         }
                     });
                 } else {
-                    // Handle item attachments (emails, meetings, etc.)
+                    // For item attachments (emails/meetings) or when API isn't available, return metadata only
                     resolve({
                         id: attachment.id,
                         name: attachment.name,
                         attachmentType: attachment.attachmentType,
                         size: attachment.size,
+                        isInline: attachment.isInline,
+                        contentId: attachment.contentId,
                         contentType: attachment.contentType || 'application/octet-stream'
                     });
                 }
